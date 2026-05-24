@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "../api/rest";
+import { ExportButton } from "../components/ExportButton";
 import { GraphView } from "../components/GraphView";
 import { Panel } from "../components/Panel";
 import { Slider } from "../components/Slider";
@@ -52,6 +53,7 @@ export function Stage1_MANET() {
       <Panel
         title="שלב 1 · רשת MANET"
         subtitle="כל צומת = מכשיר נייד; קשת בין שני צמתים שבטווח התקשורת זה מזה (Random Geometric Graph)"
+        right={<ExportButton filename="manet" data={manet} />}
       >
         <div
           style={{

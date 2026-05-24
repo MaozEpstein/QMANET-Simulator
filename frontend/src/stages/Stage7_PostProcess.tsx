@@ -10,6 +10,7 @@ import type {
 } from "../api/rest";
 import { AtomArray2D } from "../components/AtomArray2D";
 import { BitstringHistogram } from "../components/BitstringHistogram";
+import { ExportButton } from "../components/ExportButton";
 import { Panel } from "../components/Panel";
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
@@ -109,21 +110,27 @@ export function Stage7_PostProcess() {
         title="שלב 7 · Post-processing — greedy fix → extension"
         subtitle="כל shot עובר את אלגוריתם §6 של whitepaper: מסירים violations, מרחיבים ל-mIS"
         right={
-          batch ? (
-            <div
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 13,
-                color: palette.queraPurpleGlow,
-                background: palette.bgInset,
-                padding: "6px 12px",
-                borderRadius: 8,
-              }}
-              dir="ltr"
-            >
-              best |IS| = {batch.summary.best_final_size}
-            </div>
-          ) : null
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <ExportButton
+              filename="postprocess"
+              data={batch ? { batch, sa, measurement } : null}
+            />
+            {batch && (
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 13,
+                  color: palette.queraPurpleGlow,
+                  background: palette.bgInset,
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                }}
+                dir="ltr"
+              >
+                best |IS| = {batch.summary.best_final_size}
+              </div>
+            )}
+          </div>
         }
       >
         <div

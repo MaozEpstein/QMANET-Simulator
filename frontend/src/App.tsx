@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, type AquilaSpec } from "./api/rest";
+import { StageErrorBoundary } from "./components/StageErrorBoundary";
 import { Stage1_MANET } from "./stages/Stage1_MANET";
 import { Stage2_Complement } from "./stages/Stage2_Complement";
 import { Stage3_Embedding } from "./stages/Stage3_Embedding";
@@ -16,12 +17,27 @@ export function App() {
   const [spec, setSpec] = useState<AquilaSpec | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchSpec = useCallback(() => {
     api
       .aquila()
-      .then(setSpec)
+      .then((s) => {
+        setSpec(s);
+        setErr(null);
+      })
       .catch((e: Error) => setErr(e.message));
   }, []);
+
+  useEffect(() => {
+    fetchSpec();
+  }, [fetchSpec]);
+
+  // Auto-retry every 3s while disconnected so the UI recovers automatically
+  // when the dev server bounces (common during Phase development).
+  useEffect(() => {
+    if (!err) return;
+    const id = window.setInterval(fetchSpec, 3000);
+    return () => window.clearInterval(id);
+  }, [err, fetchSpec]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -35,7 +51,7 @@ export function App() {
           background: palette.bgDeep,
         }}
       >
-        {err && <BackendError msg={err} />}
+        {err && <BackendError msg={err} onRetry={fetchSpec} />}
         {!err && <StageBody stage={currentStage} />}
       </main>
       <Footer spec={spec} />
@@ -44,6 +60,16 @@ export function App() {
 }
 
 function StageBody({ stage }: { stage: StageId }) {
+  const stageMeta = STAGES.find((s) => s.id === stage)!;
+  // key=stage so navigating away resets the error boundary on the previous stage
+  return (
+    <StageErrorBoundary key={stage} stageName={stageMeta.he}>
+      {renderStage(stage)}
+    </StageErrorBoundary>
+  );
+}
+
+function renderStage(stage: StageId) {
   switch (stage) {
     case "manet":
       return <Stage1_MANET />;
@@ -64,7 +90,7 @@ function StageBody({ stage }: { stage: StageId }) {
   }
 }
 
-function BackendError({ msg }: { msg: string }) {
+function BackendError({ msg, onRetry }: { msg: string; onRetry: () => void }) {
   return (
     <div
       style={{
@@ -82,6 +108,32 @@ function BackendError({ msg }: { msg: string }) {
       </div>
       <div style={{ color: palette.err, fontSize: 12, marginTop: 6 }} dir="ltr">
         {msg}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginTop: 14,
+        }}
+      >
+        <button
+          onClick={onRetry}
+          style={{
+            padding: "8px 16px",
+            background: palette.queraPurple,
+            color: "#fff",
+            border: "none",
+            borderRadius: 6,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          ↻ נסה שוב
+        </button>
+        <span style={{ color: palette.textMuted, fontSize: 11 }}>
+          ניסיון אוטומטי כל 3 שניות…
+        </span>
       </div>
     </div>
   );

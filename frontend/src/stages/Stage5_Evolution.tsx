@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { AtomArray2D } from "../components/AtomArray2D";
 import { EvolutionPlot } from "../components/EvolutionPlot";
+import { ExportButton } from "../components/ExportButton";
 import { Panel } from "../components/Panel";
 import { Slider } from "../components/Slider";
 import { streamSimulation } from "../api/ws";
@@ -92,7 +93,19 @@ export function Stage5_Evolution() {
       <Panel
         title="שלב 5 · אבולוציה אדיאבטית בזמן אמת"
         subtitle={`Schrödinger evolution תחת H(t) הנוכחי · QuTiP sesolve · ${embed.n_atoms} אטומים`}
-        right={<StatusBadge status={simulation.status} message={simulation.errorMessage} />}
+        right={
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <ExportButton
+              filename="evolution"
+              data={
+                simulation.frames.length > 0
+                  ? { frames: simulation.frames, atoms: embed.positions }
+                  : null
+              }
+            />
+            <StatusBadge status={simulation.status} message={simulation.errorMessage} />
+          </div>
+        }
       >
         <div
           style={{
