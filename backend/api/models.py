@@ -217,3 +217,31 @@ class SAResponse(BaseModel):
     best_energy: float
     n_iterations: int
     energy_trace: list[float]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 6 — MANET routing
+# --------------------------------------------------------------------------- #
+
+
+class RoutingRequest(BaseModel):
+    graph: GraphDTO
+    backbone: list[int]
+
+
+class RouteDTO(BaseModel):
+    src: int
+    dst: int
+    path: list[int]
+    hops: int
+
+
+class RoutingResponse(BaseModel):
+    backbone: list[int]
+    is_clique: bool
+    covered_nodes: list[int]
+    coverage_fraction: float
+    n_reachable_pairs: int
+    mean_hops: float
+    max_hops: int
+    routes: list[RouteDTO]

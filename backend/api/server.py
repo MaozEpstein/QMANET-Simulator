@@ -39,6 +39,9 @@ from api.models import (
     PostProcessBatchResponse,
     PostProcessRequest,
     PostProcessResultDTO,
+    RouteDTO,
+    RoutingRequest,
+    RoutingResponse,
     SAConfigDTO,
     SARequest,
     SAResponse,
@@ -56,6 +59,7 @@ from pipeline.classical_sa import SAConfig, simulated_annealing
 from pipeline.embedding import EmbedConfig, embed as embed_atoms
 from pipeline.measurement import measure
 from pipeline.postprocess import postprocess, postprocess_many, summarize_postprocess
+from pipeline.routing import build_routing_table
 from pipeline.schedule import (
     PRESETS,
     PiecewiseLinear,
@@ -372,6 +376,31 @@ def classical_sa(req: SARequest) -> SAResponse:
     cfg = SAConfig(**req.config.model_dump()) if req.config is not None else SAConfig()
     res = simulated_annealing(g, cfg)
     return SAResponse(**res.to_dict())
+
+
+# =============================================================================
+# Phase 6 — MANET routing via the backbone clique
+# =============================================================================
+
+
+@app.post("/api/routing/build", response_model=RoutingResponse)
+def routing_build(req: RoutingRequest) -> RoutingResponse:
+    """Compute the routing table for a MANET given the backbone clique."""
+    g = _graph_to_internal(req.graph)
+    try:
+        res = build_routing_table(g, req.backbone)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return RoutingResponse(
+        backbone=list(res.backbone),
+        is_clique=res.is_clique,
+        covered_nodes=list(res.covered_nodes),
+        coverage_fraction=res.coverage_fraction,
+        n_reachable_pairs=res.n_reachable_pairs,
+        mean_hops=res.mean_hops,
+        max_hops=res.max_hops,
+        routes=[RouteDTO(**r.to_dict()) for r in res.routes],
+    )
 
 
 @app.websocket("/ws/simulate")

@@ -214,6 +214,28 @@ export interface SAResponse {
   energy_trace: number[];
 }
 
+// --------------------------------------------------------------------------- //
+// Phase 6 — MANET routing
+// --------------------------------------------------------------------------- //
+
+export interface RouteDTO {
+  src: number;
+  dst: number;
+  path: number[];
+  hops: number;
+}
+
+export interface RoutingResponse {
+  backbone: number[];
+  is_clique: boolean;
+  covered_nodes: number[];
+  coverage_fraction: number;
+  n_reachable_pairs: number;
+  mean_hops: number;
+  max_hops: number;
+  routes: RouteDTO[];
+}
+
 export const api = {
   health: () => getJSON<{ status: string; service: string; version: string }>("/"),
   aquila: () => getJSON<AquilaSpec>("/api/aquila"),
@@ -243,5 +265,10 @@ export const api = {
     postJSON<{ graph: GraphDTO; config?: Partial<SAConfigDTO> }, SAResponse>(
       "/api/classical/sa",
       { graph, config },
+    ),
+  routing: (graph: GraphDTO, backbone: number[]) =>
+    postJSON<{ graph: GraphDTO; backbone: number[] }, RoutingResponse>(
+      "/api/routing/build",
+      { graph, backbone },
     ),
 };

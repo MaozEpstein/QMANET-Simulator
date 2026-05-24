@@ -373,6 +373,29 @@ describe("api.measure / api.postprocess / api.classicalSA", () => {
     expect(JSON.parse(init.body).config.n_sweeps).toBe(100);
   });
 
+  it("routing() posts graph + backbone and parses RoutingResponse", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        backbone: [0, 1, 2],
+        is_clique: true,
+        covered_nodes: [0, 1, 2, 3],
+        coverage_fraction: 1.0,
+        n_reachable_pairs: 12,
+        mean_hops: 1.5,
+        max_hops: 2,
+        routes: [],
+      }),
+    );
+    const res = await api.routing(
+      { n_nodes: 4, edges: [[0, 1], [0, 2], [1, 2], [2, 3]], node_positions: null },
+      [0, 1, 2],
+    );
+    expect(res.is_clique).toBe(true);
+    expect(res.coverage_fraction).toBe(1.0);
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/routing/build");
+  });
+
   it("postprocessBatch() forwards shots and parses summary", async () => {
     fetchMock.mockResolvedValueOnce(
       ok({

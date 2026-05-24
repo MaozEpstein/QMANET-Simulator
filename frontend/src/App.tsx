@@ -7,7 +7,7 @@ import { Stage4_Schedule } from "./stages/Stage4_Schedule";
 import { Stage5_Evolution } from "./stages/Stage5_Evolution";
 import { Stage6_Measurement } from "./stages/Stage6_Measurement";
 import { Stage7_PostProcess } from "./stages/Stage7_PostProcess";
-import { StagePlaceholder } from "./stages/StagePlaceholder";
+import { Stage8_Routing } from "./stages/Stage8_Routing";
 import { STAGES, usePipeline, type StageId } from "./store/pipeline";
 import { palette } from "./theme/palette";
 
@@ -60,7 +60,7 @@ function StageBody({ stage }: { stage: StageId }) {
     case "postprocess":
       return <Stage7_PostProcess />;
     case "routing":
-      return <StagePlaceholder stage="שלב 8 · ניתוב MANET" eta="Phase 6 בתוכנית" />;
+      return <Stage8_Routing />;
   }
 }
 

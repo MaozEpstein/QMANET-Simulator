@@ -290,6 +290,42 @@ def test_postprocess_response_shape():
     _assert_shape(body, POSTPROCESS_RESP_SCHEMA, "PostProcessResultDTO")
 
 
+ROUTING_RESP_SCHEMA = {
+    "backbone": list,
+    "is_clique": bool,
+    "covered_nodes": list,
+    "coverage_fraction": float,
+    "n_reachable_pairs": int,
+    "mean_hops": float,
+    "max_hops": int,
+    "routes": list,
+}
+
+ROUTE_SCHEMA = {
+    "src": int,
+    "dst": int,
+    "path": list,
+    "hops": int,
+}
+
+
+def test_routing_response_shape():
+    body = client.post(
+        "/api/routing/build",
+        json={
+            "graph": {
+                "n_nodes": 3,
+                "edges": [[0, 1], [1, 2], [0, 2]],
+                "node_positions": None,
+            },
+            "backbone": [0, 1, 2],
+        },
+    ).json()
+    _assert_shape(body, ROUTING_RESP_SCHEMA, "RoutingResponse")
+    for r in body["routes"]:
+        _assert_shape(r, ROUTE_SCHEMA, "RoutingResponse.routes")
+
+
 def test_sa_response_shape():
     body = client.post(
         "/api/classical/sa",
