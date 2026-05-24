@@ -124,4 +124,26 @@ describe("AtomArray2D", () => {
     const wrapper = container.firstChild as HTMLElement;
     expect(wrapper.getAttribute("dir")).toBe("ltr");
   });
+
+  it("colors atoms by population when populations are provided", () => {
+    // p=0 → cyan; p=1 → glow purple. Verify the fill attribute differs between
+    // an excited atom and a ground-state atom.
+    const { container } = render(
+      <AtomArray2D atoms={atoms3} blockadeRadiusUm={8} populations={[0, 0.5, 1]} />,
+    );
+    const fills = Array.from(container.querySelectorAll("g[transform] circle")).map((c) =>
+      c.getAttribute("fill"),
+    );
+    expect(fills[0]).not.toEqual(fills[2]);
+  });
+
+  it("excited atoms (p=1) have a larger radius than ground-state atoms (p=0)", () => {
+    const { container } = render(
+      <AtomArray2D atoms={atoms3} blockadeRadiusUm={8} populations={[0, 0, 1]} />,
+    );
+    const radii = Array.from(container.querySelectorAll("g[transform] circle")).map((c) =>
+      Number(c.getAttribute("r")),
+    );
+    expect(radii[2]).toBeGreaterThan(radii[0]);
+  });
 });

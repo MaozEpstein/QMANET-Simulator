@@ -14,6 +14,7 @@ beforeEach(() => {
     mis: null,
     embed: null,
     schedule: null,
+    simulation: { frames: [], status: "idle", currentFrameIndex: 0 },
   });
 });
 
@@ -101,6 +102,45 @@ describe("usePipeline store", () => {
     expect(usePipeline.getState().schedule).toEqual(fake);
     usePipeline.getState().setSchedule(null);
     expect(usePipeline.getState().schedule).toBeNull();
+  });
+
+  it("simulation starts empty and resetSimulation clears frames", () => {
+    usePipeline.getState().pushSimulationFrame({
+      t_us: 0.1,
+      rydberg_populations: [0.5],
+      norm: 1.0,
+    });
+    expect(usePipeline.getState().simulation.frames.length).toBe(1);
+    usePipeline.getState().resetSimulation();
+    expect(usePipeline.getState().simulation.frames).toEqual([]);
+    expect(usePipeline.getState().simulation.status).toBe("idle");
+  });
+
+  it("pushSimulationFrame advances currentFrameIndex", () => {
+    const s = usePipeline.getState();
+    s.pushSimulationFrame({ t_us: 0, rydberg_populations: [0], norm: 1 });
+    s.pushSimulationFrame({ t_us: 0.1, rydberg_populations: [0.5], norm: 1 });
+    s.pushSimulationFrame({ t_us: 0.2, rydberg_populations: [1.0], norm: 1 });
+    expect(usePipeline.getState().simulation.frames.length).toBe(3);
+    expect(usePipeline.getState().simulation.currentFrameIndex).toBe(2);
+  });
+
+  it("setSimulationStatus accepts each status with optional message", () => {
+    usePipeline.getState().setSimulationStatus("running");
+    expect(usePipeline.getState().simulation.status).toBe("running");
+    usePipeline.getState().setSimulationStatus("error", "boom");
+    expect(usePipeline.getState().simulation.status).toBe("error");
+    expect(usePipeline.getState().simulation.errorMessage).toBe("boom");
+  });
+
+  it("setCurrentFrameIndex clamps to [0, frames.length-1]", () => {
+    const s = usePipeline.getState();
+    s.pushSimulationFrame({ t_us: 0, rydberg_populations: [0], norm: 1 });
+    s.pushSimulationFrame({ t_us: 0.1, rydberg_populations: [0.5], norm: 1 });
+    s.setCurrentFrameIndex(100);
+    expect(usePipeline.getState().simulation.currentFrameIndex).toBe(1);
+    usePipeline.getState().setCurrentFrameIndex(-5);
+    expect(usePipeline.getState().simulation.currentFrameIndex).toBe(0);
   });
 
   it("setMIS clears with null", () => {

@@ -4,7 +4,15 @@ import type {
   MANETResponse,
   MISResponse,
   ScheduleResponse,
+  SimulationFrameDTO,
 } from "../api/rest";
+
+export interface SimulationState {
+  frames: SimulationFrameDTO[];
+  status: "idle" | "running" | "done" | "error";
+  errorMessage?: string;
+  currentFrameIndex: number;
+}
 
 export const STAGES = [
   { id: "manet", label: "MANET", he: "רשת ניידת" },
@@ -34,7 +42,19 @@ interface PipelineState {
 
   schedule: ScheduleResponse | null;
   setSchedule: (s: ScheduleResponse | null) => void;
+
+  simulation: SimulationState;
+  resetSimulation: () => void;
+  pushSimulationFrame: (f: SimulationFrameDTO) => void;
+  setSimulationStatus: (s: SimulationState["status"], msg?: string) => void;
+  setCurrentFrameIndex: (i: number) => void;
 }
+
+const EMPTY_SIM: SimulationState = {
+  frames: [],
+  status: "idle",
+  currentFrameIndex: 0,
+};
 
 export const usePipeline = create<PipelineState>((set) => ({
   currentStage: "manet",
@@ -47,4 +67,28 @@ export const usePipeline = create<PipelineState>((set) => ({
   setEmbed: (e) => set({ embed: e }),
   schedule: null,
   setSchedule: (s) => set({ schedule: s }),
+  simulation: { ...EMPTY_SIM },
+  resetSimulation: () => set({ simulation: { ...EMPTY_SIM } }),
+  pushSimulationFrame: (f) =>
+    set((state) => ({
+      simulation: {
+        ...state.simulation,
+        frames: [...state.simulation.frames, f],
+        currentFrameIndex: state.simulation.frames.length, // points at the new frame
+      },
+    })),
+  setSimulationStatus: (status, msg) =>
+    set((state) => ({
+      simulation: { ...state.simulation, status, errorMessage: msg },
+    })),
+  setCurrentFrameIndex: (i) =>
+    set((state) => ({
+      simulation: {
+        ...state.simulation,
+        currentFrameIndex: Math.max(
+          0,
+          Math.min(i, state.simulation.frames.length - 1),
+        ),
+      },
+    })),
 }));

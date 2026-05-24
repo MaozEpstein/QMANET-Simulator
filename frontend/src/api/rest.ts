@@ -133,6 +133,29 @@ export interface ScheduleResponse {
   max_omega_slew_rate: number;
 }
 
+// --------------------------------------------------------------------------- //
+// Phase 4 — Simulation
+// --------------------------------------------------------------------------- //
+
+export interface SimulationFrameDTO {
+  t_us: number;
+  rydberg_populations: number[];
+  norm: number;
+}
+
+export interface SimulateRequest {
+  positions: NodePos[];
+  schedule: ScheduleDTO;
+  n_frames: number;
+}
+
+export interface SimulateResponse {
+  frames: SimulationFrameDTO[];
+  final_bitstring_probs: Record<string, number>;
+  n_atoms: number;
+  duration_us: number;
+}
+
 export const api = {
   health: () => getJSON<{ status: string; service: string; version: string }>("/"),
   aquila: () => getJSON<AquilaSpec>("/api/aquila"),
@@ -144,4 +167,6 @@ export const api = {
   presets: () => getJSON<{ presets: string[] }>("/api/schedule/presets"),
   schedule: (req: ScheduleRequest) =>
     postJSON<ScheduleRequest, ScheduleResponse>("/api/schedule/build", req),
+  simulate: (req: SimulateRequest) =>
+    postJSON<SimulateRequest, SimulateResponse>("/api/simulate/run", req),
 };

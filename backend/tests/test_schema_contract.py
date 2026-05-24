@@ -196,6 +196,47 @@ def test_schedule_response_shape():
             assert ts[i] >= ts[i - 1]
 
 
+# --------------------------------------------------------------------------- #
+# /api/simulate/run -> SimulateResponse  (Phase 4)
+# --------------------------------------------------------------------------- #
+
+
+FRAME_SCHEMA = {"t_us": float, "rydberg_populations": list, "norm": float}
+SIMULATE_RESP_SCHEMA = {
+    "frames": list,
+    "final_bitstring_probs": dict,
+    "n_atoms": int,
+    "duration_us": float,
+}
+
+
+def test_simulate_response_shape():
+    import math
+
+    omega = 6.0
+    t_total = math.pi / (math.sqrt(2) * omega)
+    body = client.post(
+        "/api/simulate/run",
+        json={
+            "positions": [
+                {"id": 0, "x": 30.0, "y": 30.0},
+                {"id": 1, "x": 34.0, "y": 30.0},
+            ],
+            "schedule": {
+                "omega": {"times": [0.0, t_total], "values": [omega, omega]},
+                "delta": {"times": [0.0, t_total], "values": [0.0, 0.0]},
+                "phi": {"times": [0.0, t_total], "values": [0.0, 0.0]},
+                "duration": t_total,
+            },
+            "n_frames": 10,
+        },
+    ).json()
+    _assert_shape(body, SIMULATE_RESP_SCHEMA, "SimulateResponse")
+    for f in body["frames"]:
+        _assert_shape(f, FRAME_SCHEMA, "SimulateResponse.frames")
+        assert len(f["rydberg_populations"]) == body["n_atoms"]
+
+
 def test_schedule_response_pulse_violation_shape():
     """Pulse violations use the same VIOLATION_SCHEMA as position ones."""
     body = client.post(

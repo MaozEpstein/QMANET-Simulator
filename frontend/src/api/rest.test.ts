@@ -256,3 +256,54 @@ describe("api.schedule + api.presets", () => {
     await expect(api.schedule({ preset: "no_such" })).rejects.toThrow(/422/);
   });
 });
+
+describe("api.simulate", () => {
+  it("posts SimulateRequest and parses SimulateResponse", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        frames: [
+          { t_us: 0, rydberg_populations: [0, 0], norm: 1 },
+          { t_us: 1, rydberg_populations: [0.5, 0.5], norm: 1 },
+        ],
+        final_bitstring_probs: { "01": 0.5, "10": 0.5 },
+        n_atoms: 2,
+        duration_us: 1,
+      }),
+    );
+    const res = await api.simulate({
+      positions: [
+        { id: 0, x: 10, y: 10 },
+        { id: 1, x: 14, y: 10 },
+      ],
+      schedule: {
+        omega: { times: [0, 1], values: [5, 5] },
+        delta: { times: [0, 1], values: [0, 0] },
+        phi: { times: [0, 1], values: [0, 0] },
+        duration: 1,
+      },
+      n_frames: 2,
+    });
+    expect(res.frames.length).toBe(2);
+    expect(res.n_atoms).toBe(2);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/simulate/run");
+    expect(init.method).toBe("POST");
+  });
+
+  it("rejects on 422 (invalid n_frames)", async () => {
+    fetchMock.mockResolvedValueOnce(err(422, "Unprocessable Entity"));
+    await expect(
+      api.simulate({
+        positions: [],
+        schedule: {
+          omega: { times: [], values: [] },
+          delta: { times: [], values: [] },
+          phi: { times: [], values: [] },
+          duration: 0,
+        },
+        n_frames: 0,
+      }),
+    ).rejects.toThrow(/422/);
+  });
+});

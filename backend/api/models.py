@@ -120,3 +120,27 @@ class ScheduleResponse(BaseModel):
     violations: list[ViolationDTO]
     max_omega_slew_rate: float
     """Largest |dΩ/dt| seen in any segment (rad/µs²)."""
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4 — Evolution
+# --------------------------------------------------------------------------- #
+
+
+class SimulateRequest(BaseModel):
+    positions: list[NodePos]
+    schedule: ScheduleDTO
+    n_frames: int = Field(default=120, ge=2, le=600)
+
+
+class SimulationFrameDTO(BaseModel):
+    t_us: float
+    rydberg_populations: list[float]
+    norm: float
+
+
+class SimulateResponse(BaseModel):
+    frames: list[SimulationFrameDTO]
+    final_bitstring_probs: dict[str, float]
+    n_atoms: int
+    duration_us: float

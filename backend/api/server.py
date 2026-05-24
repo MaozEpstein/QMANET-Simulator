@@ -17,6 +17,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from aquila.constants import AQUILA
+import asyncio
+import json
+from contextlib import suppress
+
+from fastapi import WebSocket, WebSocketDisconnect
+
 from api.models import (
     ComplementRequest,
     EmbedRequest,
@@ -30,6 +36,9 @@ from api.models import (
     ScheduleDTO,
     ScheduleRequest,
     ScheduleResponse,
+    SimulateRequest,
+    SimulateResponse,
+    SimulationFrameDTO,
     ViolationDTO,
 )
 from pipeline import clique_to_mis as cqm
@@ -42,6 +51,7 @@ from pipeline.schedule import (
     from_breakpoints,
     validate_schedule,
 )
+from pipeline.simulate import SimulationFrame, simulate
 
 app = FastAPI(
     title="Qsimulator",
@@ -231,3 +241,122 @@ def build_schedule(req: ScheduleRequest) -> ScheduleResponse:
         violations=[ViolationDTO(**v.to_dict()) for v in violations],
         max_omega_slew_rate=schedule.omega.max_slew_rate(),
     )
+
+
+# =============================================================================
+# Phase 4 — Adiabatic evolution
+# =============================================================================
+
+
+def _schedule_from_dto(s: ScheduleDTO) -> Schedule:
+    return Schedule(
+        omega=PiecewiseLinear.from_lists(s.omega.times, s.omega.values),
+        delta=PiecewiseLinear.from_lists(s.delta.times, s.delta.values),
+        phi=PiecewiseLinear.from_lists(s.phi.times, s.phi.values),
+    )
+
+
+def _frame_to_dto(f: SimulationFrame) -> SimulationFrameDTO:
+    return SimulationFrameDTO(
+        t_us=f.t_us,
+        rydberg_populations=list(f.rydberg_populations),
+        norm=f.norm,
+    )
+
+
+def _run_simulation(req: SimulateRequest) -> list[SimulationFrame]:
+    positions = [(p.x, p.y) for p in req.positions]
+    schedule = _schedule_from_dto(req.schedule)
+    result = simulate(schedule, positions, n_frames=req.n_frames)
+    return list(result.frames), result
+
+
+@app.post("/api/simulate/run", response_model=SimulateResponse)
+def simulate_run(req: SimulateRequest) -> SimulateResponse:
+    """Run the full evolution synchronously and return all frames at once."""
+    positions = [(p.x, p.y) for p in req.positions]
+    schedule = _schedule_from_dto(req.schedule)
+    result = simulate(schedule, positions, n_frames=req.n_frames)
+    return SimulateResponse(
+        frames=[_frame_to_dto(f) for f in result.frames],
+        final_bitstring_probs=result.final_bitstring_probs,
+        n_atoms=result.n_atoms,
+        duration_us=result.duration_us,
+    )
+
+
+@app.websocket("/ws/simulate")
+async def simulate_ws(websocket: WebSocket) -> None:
+    """
+    Live-stream simulation frames.
+
+    Protocol (text JSON, both directions):
+      Client → server: a single SimulateRequest JSON message to start a job.
+      Server → client: a stream of frame messages
+                       {"type":"frame","frame":SimulationFrameDTO}
+                       terminated by
+                       {"type":"done","final_bitstring_probs":...,"n_atoms":N,"duration_us":T}
+                       on error:
+                       {"type":"error","message":...}
+
+    Backpressure: frames are produced by a worker thread; the WS coroutine
+    reads from a bounded queue and skips frames if the client is slow, so the
+    network never falls more than N frames behind real time.
+    """
+    await websocket.accept()
+    try:
+        text = await websocket.receive_text()
+        payload = json.loads(text)
+        req = SimulateRequest(**payload)
+    except Exception as e:
+        await websocket.send_json({"type": "error", "message": f"invalid request: {e}"})
+        await websocket.close()
+        return
+
+    queue: asyncio.Queue[SimulationFrame | None] = asyncio.Queue(maxsize=8)
+    loop = asyncio.get_running_loop()
+
+    def on_frame(frame: SimulationFrame) -> None:
+        # Called from the simulator's worker thread. Schedule put() on the loop.
+        asyncio.run_coroutine_threadsafe(queue.put(frame), loop)
+
+    def run_simulator() -> None:
+        try:
+            schedule = _schedule_from_dto(req.schedule)
+            positions = [(p.x, p.y) for p in req.positions]
+            simulate(schedule, positions, n_frames=req.n_frames, on_frame=on_frame)
+        finally:
+            asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+
+    worker = loop.run_in_executor(None, run_simulator)
+
+    try:
+        n_atoms = len(req.positions)
+        duration = req.schedule.duration
+        final_state_frame: SimulationFrame | None = None
+        while True:
+            frame = await queue.get()
+            if frame is None:
+                break
+            final_state_frame = frame
+            await websocket.send_json(
+                {"type": "frame", "frame": _frame_to_dto(frame).model_dump()}
+            )
+        await websocket.send_json(
+            {
+                "type": "done",
+                "n_atoms": n_atoms,
+                "duration_us": duration,
+                "final_t_us": final_state_frame.t_us if final_state_frame else 0.0,
+            }
+        )
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        with suppress(Exception):
+            await websocket.send_json({"type": "error", "message": str(e)})
+    finally:
+        with suppress(Exception):
+            await websocket.close()
+        with suppress(Exception):
+            await worker

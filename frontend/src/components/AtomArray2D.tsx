@@ -14,6 +14,24 @@ import { useMemo } from "react";
 import { palette } from "../theme/palette";
 import type { NodePos } from "../api/rest";
 
+/** Linearly interpolate two #rrggbb hex colors (0=a, 1=b). */
+function mixHex(a: string, b: string, t: number): string {
+  const pa = hexToRgb(a);
+  const pb = hexToRgb(b);
+  const r = Math.round(pa[0] + (pb[0] - pa[0]) * t);
+  const g = Math.round(pa[1] + (pb[1] - pa[1]) * t);
+  const bl = Math.round(pa[2] + (pb[2] - pa[2]) * t);
+  return `rgb(${r},${g},${bl})`;
+}
+function hexToRgb(h: string): [number, number, number] {
+  const s = h.replace("#", "");
+  return [
+    parseInt(s.slice(0, 2), 16),
+    parseInt(s.slice(2, 4), 16),
+    parseInt(s.slice(4, 6), 16),
+  ];
+}
+
 interface Props {
   atoms: NodePos[];
   blockadeRadiusUm: number;
@@ -34,6 +52,12 @@ interface Props {
   /** When true, draw the lattice grid. */
   showGrid?: boolean;
   caption?: string;
+  /**
+   * Optional Rydberg populations per atom (same length as `atoms`).
+   * Drives the emissive intensity: 0 → cool ground-state cyan,
+   * 1 → glowing Rydberg purple. Phase 4 plumbs WS frames into this prop.
+   */
+  populations?: number[];
 }
 
 export function AtomArray2D({
@@ -49,6 +73,7 @@ export function AtomArray2D({
   showBlockade = true,
   showGrid = true,
   caption,
+  populations,
 }: Props) {
   // Preserve aspect ratio in µm-space → pixel-space.
   const scale = useMemo(
@@ -181,13 +206,23 @@ export function AtomArray2D({
         })}
 
         {/* Atoms */}
-        {atoms.map((a) => {
+        {atoms.map((a, idx) => {
           const isHi = highlight?.has(a.id) ?? false;
+          const p = populations?.[idx] ?? 0;
+          // Interpolate ground-state cyan → Rydberg purple based on ⟨n̂_i⟩
+          const groundColor = palette.atomGround; // #3ed3ff
+          const rydColor = palette.queraPurpleGlow; // #b388ff
+          const fill = isHi
+            ? palette.err
+            : populations !== undefined
+              ? mixHex(groundColor, rydColor, Math.max(0, Math.min(1, p)))
+              : "url(#atom-gradient)";
+          const radius = isHi ? 8 : 6 + (populations !== undefined ? 2 * p : 0);
           return (
             <g key={`atom-${a.id}`} transform={`translate(${toX(a.x)}, ${toY(a.y)})`}>
               <circle
-                r={isHi ? 8 : 6}
-                fill={isHi ? palette.err : "url(#atom-gradient)"}
+                r={radius}
+                fill={fill}
                 stroke="#fff"
                 strokeOpacity={0.9}
                 strokeWidth={isHi ? 2 : 1}
