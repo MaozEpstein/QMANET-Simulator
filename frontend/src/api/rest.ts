@@ -156,6 +156,64 @@ export interface SimulateResponse {
   duration_us: number;
 }
 
+// --------------------------------------------------------------------------- //
+// Phase 5 — Measurement / Post-process / SA
+// --------------------------------------------------------------------------- //
+
+export interface MeasureRequest {
+  bitstring_probs: Record<string, number>;
+  n_shots: number;
+  apply_noise: boolean;
+  seed?: number | null;
+}
+
+export interface MeasureResponse {
+  bitstrings: string[];
+  histogram: Record<string, number>;
+  n_shots: number;
+  n_atoms: number;
+}
+
+export interface PostProcessResultDTO {
+  raw_bitstring: string;
+  raw_size: number;
+  raw_violations: number;
+  after_fix_bitstring: string;
+  after_fix_size: number;
+  removed: number[];
+  final_bitstring: string;
+  final_size: number;
+  added: number[];
+  is_valid: boolean;
+}
+
+export interface PostProcessBatchResponse {
+  results: PostProcessResultDTO[];
+  summary: {
+    n_shots: number;
+    mean_raw_size: number;
+    mean_fixed_size: number;
+    mean_final_size: number;
+    best_final_size: number;
+  };
+}
+
+export interface SAConfigDTO {
+  n_sweeps: number;
+  t_initial: number;
+  t_final: number;
+  penalty: number;
+  seed?: number | null;
+}
+
+export interface SAResponse {
+  best_set: number[];
+  best_size: number;
+  best_energy: number;
+  n_iterations: number;
+  energy_trace: number[];
+}
+
 export const api = {
   health: () => getJSON<{ status: string; service: string; version: string }>("/"),
   aquila: () => getJSON<AquilaSpec>("/api/aquila"),
@@ -169,4 +227,21 @@ export const api = {
     postJSON<ScheduleRequest, ScheduleResponse>("/api/schedule/build", req),
   simulate: (req: SimulateRequest) =>
     postJSON<SimulateRequest, SimulateResponse>("/api/simulate/run", req),
+  measure: (req: MeasureRequest) =>
+    postJSON<MeasureRequest, MeasureResponse>("/api/measure", req),
+  postprocess: (bitstring: string, target_graph: GraphDTO, seed?: number) =>
+    postJSON<
+      { bitstring: string; target_graph: GraphDTO; seed?: number },
+      PostProcessResultDTO
+    >("/api/postprocess", { bitstring, target_graph, seed }),
+  postprocessBatch: (bitstrings: string[], target_graph: GraphDTO, seed?: number) =>
+    postJSON<
+      { bitstrings: string[]; target_graph: GraphDTO; seed?: number },
+      PostProcessBatchResponse
+    >("/api/postprocess/batch", { bitstrings, target_graph, seed }),
+  classicalSA: (graph: GraphDTO, config?: Partial<SAConfigDTO>) =>
+    postJSON<{ graph: GraphDTO; config?: Partial<SAConfigDTO> }, SAResponse>(
+      "/api/classical/sa",
+      { graph, config },
+    ),
 };

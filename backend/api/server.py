@@ -31,8 +31,17 @@ from api.models import (
     MANETRequest,
     MANETResponse,
     MISResponse,
+    MeasureRequest,
+    MeasureResponse,
     NodePos,
     PiecewiseLinearDTO,
+    PostProcessBatchRequest,
+    PostProcessBatchResponse,
+    PostProcessRequest,
+    PostProcessResultDTO,
+    SAConfigDTO,
+    SARequest,
+    SAResponse,
     ScheduleDTO,
     ScheduleRequest,
     ScheduleResponse,
@@ -43,7 +52,10 @@ from api.models import (
 )
 from pipeline import clique_to_mis as cqm
 from pipeline import manet as manet_mod
+from pipeline.classical_sa import SAConfig, simulated_annealing
 from pipeline.embedding import EmbedConfig, embed as embed_atoms
+from pipeline.measurement import measure
+from pipeline.postprocess import postprocess, postprocess_many, summarize_postprocess
 from pipeline.schedule import (
     PRESETS,
     PiecewiseLinear,
@@ -51,7 +63,7 @@ from pipeline.schedule import (
     from_breakpoints,
     validate_schedule,
 )
-from pipeline.simulate import SimulationFrame, simulate
+from pipeline.simulate import SimulationFrame, SimulationResult, simulate
 
 app = FastAPI(
     title="Qsimulator",
@@ -283,6 +295,83 @@ def simulate_run(req: SimulateRequest) -> SimulateResponse:
         n_atoms=result.n_atoms,
         duration_us=result.duration_us,
     )
+
+
+# =============================================================================
+# Phase 5 — Measurement, post-processing, classical SA
+# =============================================================================
+
+
+@app.post("/api/measure", response_model=MeasureResponse)
+def measure_shots(req: MeasureRequest) -> MeasureResponse:
+    """Sample shots from a probability distribution + apply Aquila noise."""
+    if not req.bitstring_probs:
+        return MeasureResponse(bitstrings=[], histogram={}, n_shots=0, n_atoms=0)
+    n_atoms = len(next(iter(req.bitstring_probs.keys())))
+    sim = SimulationResult(
+        frames=(),
+        final_bitstring_probs=req.bitstring_probs,
+        n_atoms=n_atoms,
+        duration_us=0.0,
+    )
+    m = measure(sim, n_shots=req.n_shots, seed=req.seed, apply_noise=req.apply_noise)
+    return MeasureResponse(
+        bitstrings=list(m.bitstrings),
+        histogram=m.histogram,
+        n_shots=m.n_shots,
+        n_atoms=m.n_atoms,
+    )
+
+
+def _graph_to_internal(dto: GraphDTO) -> cqm.Graph:
+    return cqm.Graph(
+        n_nodes=dto.n_nodes,
+        edges=[(int(u), int(v)) for u, v in dto.edges],
+        node_positions=(
+            [{"id": p.id, "x": p.x, "y": p.y} for p in dto.node_positions]
+            if dto.node_positions is not None
+            else None
+        ),
+    )
+
+
+@app.post("/api/postprocess", response_model=PostProcessResultDTO)
+def postprocess_one(req: PostProcessRequest) -> PostProcessResultDTO:
+    """Greedy violation fix + greedy mIS extension on a single shot."""
+    g = _graph_to_internal(req.target_graph)
+    if len(req.bitstring) != g.n_nodes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"bitstring length {len(req.bitstring)} != n_nodes {g.n_nodes}",
+        )
+    res = postprocess(req.bitstring, g, seed=req.seed)
+    return PostProcessResultDTO(**res.to_dict())
+
+
+@app.post("/api/postprocess/batch", response_model=PostProcessBatchResponse)
+def postprocess_batch(req: PostProcessBatchRequest) -> PostProcessBatchResponse:
+    """Run postprocess on many shots, return per-shot results + summary."""
+    g = _graph_to_internal(req.target_graph)
+    for b in req.bitstrings:
+        if len(b) != g.n_nodes:
+            raise HTTPException(
+                status_code=422,
+                detail=f"bitstring length {len(b)} != n_nodes {g.n_nodes}",
+            )
+    results = postprocess_many(req.bitstrings, g, seed=req.seed)
+    return PostProcessBatchResponse(
+        results=[PostProcessResultDTO(**r.to_dict()) for r in results],
+        summary=summarize_postprocess(results),
+    )
+
+
+@app.post("/api/classical/sa", response_model=SAResponse)
+def classical_sa(req: SARequest) -> SAResponse:
+    """Run classical simulated annealing as the benchmark."""
+    g = _graph_to_internal(req.graph)
+    cfg = SAConfig(**req.config.model_dump()) if req.config is not None else SAConfig()
+    res = simulated_annealing(g, cfg)
+    return SAResponse(**res.to_dict())
 
 
 @app.websocket("/ws/simulate")

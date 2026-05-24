@@ -144,3 +144,76 @@ class SimulateResponse(BaseModel):
     final_bitstring_probs: dict[str, float]
     n_atoms: int
     duration_us: float
+
+
+# --------------------------------------------------------------------------- #
+# Phase 5 — Measurement / Post-process / Classical SA
+# --------------------------------------------------------------------------- #
+
+
+class MeasureRequest(BaseModel):
+    """Sample bitstrings from a probability distribution (typically from
+    a previous simulate run)."""
+
+    bitstring_probs: dict[str, float]
+    n_shots: int = Field(default=200, ge=1, le=10000)
+    apply_noise: bool = True
+    seed: int | None = None
+
+
+class MeasureResponse(BaseModel):
+    bitstrings: list[str]
+    histogram: dict[str, int]
+    n_shots: int
+    n_atoms: int
+
+
+class PostProcessRequest(BaseModel):
+    bitstring: str
+    target_graph: GraphDTO
+    seed: int | None = 0
+
+
+class PostProcessResultDTO(BaseModel):
+    raw_bitstring: str
+    raw_size: int
+    raw_violations: int
+    after_fix_bitstring: str
+    after_fix_size: int
+    removed: list[int]
+    final_bitstring: str
+    final_size: int
+    added: list[int]
+    is_valid: bool
+
+
+class PostProcessBatchRequest(BaseModel):
+    bitstrings: list[str]
+    target_graph: GraphDTO
+    seed: int | None = 0
+
+
+class PostProcessBatchResponse(BaseModel):
+    results: list[PostProcessResultDTO]
+    summary: dict
+
+
+class SAConfigDTO(BaseModel):
+    n_sweeps: int = Field(default=200, ge=1, le=10000)
+    t_initial: float = Field(default=2.0, gt=0.0)
+    t_final: float = Field(default=0.01, gt=0.0)
+    penalty: float = Field(default=2.0, ge=1.0)
+    seed: int | None = 0
+
+
+class SARequest(BaseModel):
+    graph: GraphDTO
+    config: SAConfigDTO | None = None
+
+
+class SAResponse(BaseModel):
+    best_set: list[int]
+    best_size: int
+    best_energy: float
+    n_iterations: int
+    energy_trace: list[float]

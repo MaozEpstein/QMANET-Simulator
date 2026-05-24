@@ -307,3 +307,104 @@ describe("api.simulate", () => {
     ).rejects.toThrow(/422/);
   });
 });
+
+describe("api.measure / api.postprocess / api.classicalSA", () => {
+  it("measure() posts probs and parses response", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        bitstrings: ["00", "01"],
+        histogram: { "00": 1, "01": 1 },
+        n_shots: 2,
+        n_atoms: 2,
+      }),
+    );
+    const res = await api.measure({
+      bitstring_probs: { "00": 0.5, "01": 0.5 },
+      n_shots: 2,
+      apply_noise: false,
+    });
+    expect(res.n_atoms).toBe(2);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/measure");
+    expect(init.method).toBe("POST");
+  });
+
+  it("postprocess() posts a bitstring + graph", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        raw_bitstring: "11",
+        raw_size: 2,
+        raw_violations: 1,
+        after_fix_bitstring: "10",
+        after_fix_size: 1,
+        removed: [1],
+        final_bitstring: "10",
+        final_size: 1,
+        added: [],
+        is_valid: true,
+      }),
+    );
+    const res = await api.postprocess(
+      "11",
+      { n_nodes: 2, edges: [[0, 1]], node_positions: null },
+      42,
+    );
+    expect(res.is_valid).toBe(true);
+    expect(res.final_size).toBe(1);
+  });
+
+  it("classicalSA() posts graph + config", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        best_set: [0, 2],
+        best_size: 2,
+        best_energy: -2,
+        n_iterations: 100,
+        energy_trace: [0, -1, -2],
+      }),
+    );
+    const res = await api.classicalSA(
+      { n_nodes: 3, edges: [[0, 1], [1, 2]], node_positions: null },
+      { n_sweeps: 100 },
+    );
+    expect(res.best_size).toBe(2);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/classical/sa");
+    expect(JSON.parse(init.body).config.n_sweeps).toBe(100);
+  });
+
+  it("postprocessBatch() forwards shots and parses summary", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        results: [
+          {
+            raw_bitstring: "00",
+            raw_size: 0,
+            raw_violations: 0,
+            after_fix_bitstring: "00",
+            after_fix_size: 0,
+            removed: [],
+            final_bitstring: "10",
+            final_size: 1,
+            added: [0],
+            is_valid: true,
+          },
+        ],
+        summary: {
+          n_shots: 1,
+          mean_raw_size: 0,
+          mean_fixed_size: 0,
+          mean_final_size: 1,
+          best_final_size: 1,
+        },
+      }),
+    );
+    const res = await api.postprocessBatch(
+      ["00"],
+      { n_nodes: 2, edges: [[0, 1]], node_positions: null },
+      0,
+    );
+    expect(res.results.length).toBe(1);
+    expect(res.summary.best_final_size).toBe(1);
+  });
+});

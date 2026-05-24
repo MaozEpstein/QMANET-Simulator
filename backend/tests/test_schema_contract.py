@@ -237,6 +237,67 @@ def test_simulate_response_shape():
         assert len(f["rydberg_populations"]) == body["n_atoms"]
 
 
+# --------------------------------------------------------------------------- #
+# Phase 5 endpoints
+# --------------------------------------------------------------------------- #
+
+
+MEASURE_RESP_SCHEMA = {
+    "bitstrings": list,
+    "histogram": dict,
+    "n_shots": int,
+    "n_atoms": int,
+}
+
+POSTPROCESS_RESP_SCHEMA = {
+    "raw_bitstring": str,
+    "raw_size": int,
+    "raw_violations": int,
+    "after_fix_bitstring": str,
+    "after_fix_size": int,
+    "removed": list,
+    "final_bitstring": str,
+    "final_size": int,
+    "added": list,
+    "is_valid": bool,
+}
+
+SA_RESP_SCHEMA = {
+    "best_set": list,
+    "best_size": int,
+    "best_energy": float,
+    "n_iterations": int,
+    "energy_trace": list,
+}
+
+
+def test_measure_response_shape():
+    body = client.post(
+        "/api/measure",
+        json={"bitstring_probs": {"00": 0.5, "11": 0.5}, "n_shots": 10, "apply_noise": False},
+    ).json()
+    _assert_shape(body, MEASURE_RESP_SCHEMA, "MeasureResponse")
+
+
+def test_postprocess_response_shape():
+    body = client.post(
+        "/api/postprocess",
+        json={
+            "bitstring": "10101",
+            "target_graph": {"n_nodes": 5, "edges": [[0, 1], [1, 2]], "node_positions": None},
+        },
+    ).json()
+    _assert_shape(body, POSTPROCESS_RESP_SCHEMA, "PostProcessResultDTO")
+
+
+def test_sa_response_shape():
+    body = client.post(
+        "/api/classical/sa",
+        json={"graph": {"n_nodes": 4, "edges": [], "node_positions": None}},
+    ).json()
+    _assert_shape(body, SA_RESP_SCHEMA, "SAResponse")
+
+
 def test_schedule_response_pulse_violation_shape():
     """Pulse violations use the same VIOLATION_SCHEMA as position ones."""
     body = client.post(
