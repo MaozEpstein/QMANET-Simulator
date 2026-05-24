@@ -1,0 +1,64 @@
+:root {
+  --bg-deep: #0a0f1e;
+  --bg-panel: #121a2e;
+  --bg-panel-elevated: #1a2440;
+  --bg-inset: #0f1426;
+
+  --text-primary: #e8ecf5;
+  --text-secondary: #9aa6bf;
+  --text-muted: #5d6885;
+
+  --quera-purple: #6b3fa0;
+  --quera-purple-glow: #b388ff;
+  --quera-purple-soft: #3a2861;
+
+  --atom-ground: #3ed3ff;
+  --atom-rydberg: #b388ff;
+
+  --ok: #3ddc97;
+  --warn: #ffb547;
+  --err: #ff5470;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  --font-ui: "Heebo", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+code,
+pre,
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Make KaTeX inside RTL content always render LTR. */
+.katex {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
