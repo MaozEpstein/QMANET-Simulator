@@ -41,3 +41,44 @@ class MISResponse(BaseModel):
     mis_in_complement: list[int]
     """Same set — viewed as a maximum independent set in the complement."""
     size: int
+
+
+# --------------------------------------------------------------------------- #
+# Phase 2 — Embedding
+# --------------------------------------------------------------------------- #
+
+
+class EmbedConfigDTO(BaseModel):
+    lattice_spacing_um: float = Field(default=5.0, gt=0.0, le=75.0)
+    rabi_rad_us: float = Field(default=15.0, ge=0.0, le=15.8)
+    detuning_rad_us: float = Field(default=0.0, ge=-125.0, le=125.0)
+    layout_seed: int = 0
+    layout_iterations: int = Field(default=200, ge=0, le=2000)
+    snap_to_grid: bool = True
+    rescale_to_region: bool = True
+    margin_um: float = Field(default=2.0, ge=0.0, le=10.0)
+
+
+class EmbedRequest(BaseModel):
+    target_graph: GraphDTO
+    config: EmbedConfigDTO | None = None
+
+
+class ViolationDTO(BaseModel):
+    code: str
+    message: str
+    locus: dict
+    measured: float
+    limit: float
+
+
+class EmbedResponse(BaseModel):
+    positions: list[NodePos]
+    n_atoms: int
+    blockade_radius_um: float
+    induced_edges: list[tuple[int, int]]
+    embedding_fidelity: float
+    """Jaccard similarity between induced and target edge sets, in [0,1]."""
+    missing_edges: list[tuple[int, int]]
+    spurious_edges: list[tuple[int, int]]
+    violations: list[ViolationDTO]

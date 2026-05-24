@@ -19,14 +19,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from aquila.constants import AQUILA
 from api.models import (
     ComplementRequest,
+    EmbedRequest,
+    EmbedResponse,
     GraphDTO,
     MANETRequest,
     MANETResponse,
     MISResponse,
     NodePos,
+    ViolationDTO,
 )
 from pipeline import clique_to_mis as cqm
 from pipeline import manet as manet_mod
+from pipeline.embedding import EmbedConfig, embed as embed_atoms
 
 app = FastAPI(
     title="Qsimulator",
@@ -132,4 +136,31 @@ def graph_complement(req: ComplementRequest) -> MISResponse:
         max_clique_in_G=max_clique,
         mis_in_complement=max_clique,
         size=len(max_clique),
+    )
+
+
+# =============================================================================
+# Phase 2 — Embedding (MIS-graph → atom array)
+# =============================================================================
+
+
+@app.post("/api/embed/atoms", response_model=EmbedResponse)
+def embed_atoms_endpoint(req: EmbedRequest) -> EmbedResponse:
+    """
+    Place atoms on the Aquila lattice approximating ``target_graph`` as a
+    unit-disk graph under the Rydberg blockade. Always returns a valid
+    response — geometric/constraint violations are listed in `violations`.
+    """
+    g = _dto_to_graph(req.target_graph)
+    cfg = EmbedConfig(**req.config.model_dump()) if req.config is not None else EmbedConfig()
+    arr = embed_atoms(g, cfg)
+    return EmbedResponse(
+        positions=[NodePos(id=i, x=x, y=y) for i, (x, y) in enumerate(arr.positions)],
+        n_atoms=len(arr.positions),
+        blockade_radius_um=arr.blockade_radius_um,
+        induced_edges=arr.induced_edges,
+        embedding_fidelity=arr.embedding_fidelity,
+        missing_edges=arr.missing_edges,
+        spurious_edges=arr.spurious_edges,
+        violations=[ViolationDTO(**v.to_dict()) for v in arr.violations],
     )

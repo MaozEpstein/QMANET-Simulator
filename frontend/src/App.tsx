@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type AquilaSpec } from "./api/rest";
 import { Stage1_MANET } from "./stages/Stage1_MANET";
 import { Stage2_Complement } from "./stages/Stage2_Complement";
+import { Stage3_Embedding } from "./stages/Stage3_Embedding";
 import { StagePlaceholder } from "./stages/StagePlaceholder";
 import { STAGES, usePipeline, type StageId } from "./store/pipeline";
 import { palette } from "./theme/palette";
@@ -45,7 +46,7 @@ function StageBody({ stage }: { stage: StageId }) {
     case "complement":
       return <Stage2_Complement />;
     case "embedding":
-      return <StagePlaceholder stage="שלב 3 · השמת אטומים" eta="Phase 2 בתוכנית" />;
+      return <Stage3_Embedding />;
     case "schedule":
       return <StagePlaceholder stage="שלב 4 · פולס אדיאבטי" eta="Phase 3 בתוכנית" />;
     case "evolution":

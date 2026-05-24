@@ -8,7 +8,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { STAGES, usePipeline } from "./pipeline";
 
 beforeEach(() => {
-  usePipeline.setState({ currentStage: "manet", manet: null, mis: null });
+  usePipeline.setState({
+    currentStage: "manet",
+    manet: null,
+    mis: null,
+    embed: null,
+  });
 });
 
 describe("STAGES", () => {
@@ -61,6 +66,23 @@ describe("usePipeline store", () => {
     };
     usePipeline.getState().setManet(fake);
     expect(usePipeline.getState().manet).toEqual(fake);
+  });
+
+  it("setEmbed stores and clears", () => {
+    const fake = {
+      positions: [{ id: 0, x: 10, y: 10 }],
+      n_atoms: 1,
+      blockade_radius_um: 8,
+      induced_edges: [],
+      embedding_fidelity: 1,
+      missing_edges: [],
+      spurious_edges: [],
+      violations: [],
+    };
+    usePipeline.getState().setEmbed(fake);
+    expect(usePipeline.getState().embed).toEqual(fake);
+    usePipeline.getState().setEmbed(null);
+    expect(usePipeline.getState().embed).toBeNull();
   });
 
   it("setMIS clears with null", () => {

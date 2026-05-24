@@ -8,7 +8,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, type GraphDTO, type MANETResponse, type MISResponse } from "./rest";
+import {
+  api,
+  type EmbedResponse,
+  type GraphDTO,
+  type MANETResponse,
+  type MISResponse,
+} from "./rest";
 
 const fetchMock = vi.fn();
 
@@ -152,5 +158,63 @@ describe("api.complement", () => {
     await expect(
       api.complement({ n_nodes: 0, edges: [], node_positions: null }),
     ).rejects.toThrow(/fetch/);
+  });
+});
+
+describe("api.embed", () => {
+  it("posts target_graph and parses EmbedResponse", async () => {
+    const fake: EmbedResponse = {
+      positions: [{ id: 0, x: 10, y: 10 }],
+      n_atoms: 1,
+      blockade_radius_um: 8.7,
+      induced_edges: [],
+      embedding_fidelity: 1.0,
+      missing_edges: [],
+      spurious_edges: [],
+      violations: [],
+    };
+    fetchMock.mockResolvedValueOnce(ok(fake));
+    const res = await api.embed({
+      target_graph: { n_nodes: 1, edges: [], node_positions: null },
+    });
+    expect(res.n_atoms).toBe(1);
+    expect(res.blockade_radius_um).toBeCloseTo(8.7);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/embed/atoms");
+    expect(init.method).toBe("POST");
+  });
+
+  it("forwards optional config", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        positions: [],
+        n_atoms: 0,
+        blockade_radius_um: 8,
+        induced_edges: [],
+        embedding_fidelity: 1,
+        missing_edges: [],
+        spurious_edges: [],
+        violations: [],
+      } satisfies EmbedResponse),
+    );
+    await api.embed({
+      target_graph: { n_nodes: 0, edges: [], node_positions: null },
+      config: { rabi_rad_us: 10, lattice_spacing_um: 6 },
+    });
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.config.rabi_rad_us).toBe(10);
+    expect(body.config.lattice_spacing_um).toBe(6);
+  });
+
+  it("rejects on 422 (Aquila Pydantic validation)", async () => {
+    fetchMock.mockResolvedValueOnce(err(422, "Unprocessable Entity"));
+    await expect(
+      api.embed({
+        target_graph: { n_nodes: 0, edges: [], node_positions: null },
+        config: { rabi_rad_us: 20 },
+      }),
+    ).rejects.toThrow(/422/);
   });
 });

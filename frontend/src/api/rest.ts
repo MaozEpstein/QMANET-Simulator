@@ -64,6 +64,45 @@ export interface MISResponse {
   size: number;
 }
 
+// --------------------------------------------------------------------------- //
+// Phase 2 — Embedding
+// --------------------------------------------------------------------------- //
+
+export interface EmbedConfigDTO {
+  lattice_spacing_um: number;
+  rabi_rad_us: number;
+  detuning_rad_us: number;
+  layout_seed: number;
+  layout_iterations: number;
+  snap_to_grid: boolean;
+  rescale_to_region: boolean;
+  margin_um: number;
+}
+
+export interface ViolationDTO {
+  code: string;
+  message: string;
+  locus: Record<string, number | string>;
+  measured: number;
+  limit: number;
+}
+
+export interface EmbedResponse {
+  positions: NodePos[];
+  n_atoms: number;
+  blockade_radius_um: number;
+  induced_edges: [number, number][];
+  embedding_fidelity: number;
+  missing_edges: [number, number][];
+  spurious_edges: [number, number][];
+  violations: ViolationDTO[];
+}
+
+export interface EmbedRequest {
+  target_graph: GraphDTO;
+  config?: Partial<EmbedConfigDTO>;
+}
+
 export const api = {
   health: () => getJSON<{ status: string; service: string; version: string }>("/"),
   aquila: () => getJSON<AquilaSpec>("/api/aquila"),
@@ -71,4 +110,5 @@ export const api = {
     postJSON<MANETRequest, MANETResponse>("/api/manet/generate", req),
   complement: (graph: GraphDTO) =>
     postJSON<{ graph: GraphDTO }, MISResponse>("/api/graph/complement", { graph }),
+  embed: (req: EmbedRequest) => postJSON<EmbedRequest, EmbedResponse>("/api/embed/atoms", req),
 };

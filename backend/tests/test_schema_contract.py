@@ -133,6 +133,51 @@ def test_mis_response_shape():
         assert isinstance(v, int)
 
 
+# --------------------------------------------------------------------------- #
+# /api/embed/atoms -> EmbedResponse  (Phase 2)
+# --------------------------------------------------------------------------- #
+
+
+EMBED_SCHEMA = {
+    "positions": list,
+    "n_atoms": int,
+    "blockade_radius_um": float,
+    "induced_edges": list,
+    "embedding_fidelity": float,
+    "missing_edges": list,
+    "spurious_edges": list,
+    "violations": list,
+}
+
+VIOLATION_SCHEMA = {
+    "code": str,
+    "message": str,
+    "locus": dict,
+    "measured": float,
+    "limit": float,
+}
+
+
+def test_embed_response_shape():
+    body = client.post(
+        "/api/embed/atoms",
+        json={"target_graph": {"n_nodes": 4, "edges": [[0, 1], [2, 3]], "node_positions": None}},
+    ).json()
+    _assert_shape(body, EMBED_SCHEMA, "EmbedResponse")
+    for p in body["positions"]:
+        _assert_shape(p, NODE_POS_SCHEMA, "EmbedResponse.positions")
+
+
+def test_embed_violation_shape_when_present():
+    body = client.post(
+        "/api/embed/atoms",
+        json={"target_graph": {"n_nodes": 300, "edges": [], "node_positions": None}},
+    ).json()
+    assert len(body["violations"]) > 0
+    for v in body["violations"]:
+        _assert_shape(v, VIOLATION_SCHEMA, "EmbedResponse.violations")
+
+
 def test_mis_response_max_clique_and_mis_consistent():
     """The 'max_clique_in_G' and 'mis_in_complement' lists are two names for the same set."""
     body = client.post(
