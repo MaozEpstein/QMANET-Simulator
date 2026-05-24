@@ -13,6 +13,7 @@ beforeEach(() => {
     manet: null,
     mis: null,
     embed: null,
+    schedule: null,
   });
 });
 
@@ -83,6 +84,23 @@ describe("usePipeline store", () => {
     expect(usePipeline.getState().embed).toEqual(fake);
     usePipeline.getState().setEmbed(null);
     expect(usePipeline.getState().embed).toBeNull();
+  });
+
+  it("setSchedule stores and clears", () => {
+    const fake = {
+      schedule: {
+        omega: { times: [0, 4], values: [0, 0] },
+        delta: { times: [0, 4], values: [-30, 40] },
+        phi: { times: [0, 4], values: [0, 0] },
+        duration: 4,
+      },
+      violations: [],
+      max_omega_slew_rate: 37.5,
+    };
+    usePipeline.getState().setSchedule(fake);
+    expect(usePipeline.getState().schedule).toEqual(fake);
+    usePipeline.getState().setSchedule(null);
+    expect(usePipeline.getState().schedule).toBeNull();
   });
 
   it("setMIS clears with null", () => {

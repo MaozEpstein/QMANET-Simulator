@@ -82,3 +82,41 @@ class EmbedResponse(BaseModel):
     missing_edges: list[tuple[int, int]]
     spurious_edges: list[tuple[int, int]]
     violations: list[ViolationDTO]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 3 — Pulse schedule
+# --------------------------------------------------------------------------- #
+
+
+class PiecewiseLinearDTO(BaseModel):
+    times: list[float]
+    values: list[float]
+
+
+class ScheduleDTO(BaseModel):
+    omega: PiecewiseLinearDTO
+    delta: PiecewiseLinearDTO
+    phi: PiecewiseLinearDTO
+    duration: float
+
+
+class ScheduleRequest(BaseModel):
+    """Either preset+params, or explicit breakpoints. Preset wins if both given."""
+
+    preset: str | None = None
+    """Name of a registered preset (paper_linear_ramp, bernien_2017_sweep)."""
+
+    preset_params: dict = Field(default_factory=dict)
+    """Optional keyword arguments forwarded to the preset constructor."""
+
+    omega_breakpoints: list[tuple[float, float]] | None = None
+    delta_breakpoints: list[tuple[float, float]] | None = None
+    phi_breakpoints: list[tuple[float, float]] | None = None
+
+
+class ScheduleResponse(BaseModel):
+    schedule: ScheduleDTO
+    violations: list[ViolationDTO]
+    max_omega_slew_rate: float
+    """Largest |dΩ/dt| seen in any segment (rad/µs²)."""

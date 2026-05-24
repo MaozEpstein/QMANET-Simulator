@@ -168,6 +168,48 @@ def test_embed_response_shape():
         _assert_shape(p, NODE_POS_SCHEMA, "EmbedResponse.positions")
 
 
+# --------------------------------------------------------------------------- #
+# /api/schedule/build -> ScheduleResponse  (Phase 3)
+# --------------------------------------------------------------------------- #
+
+
+PWL_SCHEMA = {"times": list, "values": list}
+SCHEDULE_SCHEMA = {"omega": dict, "delta": dict, "phi": dict, "duration": float}
+SCHEDULE_RESP_SCHEMA = {
+    "schedule": dict,
+    "violations": list,
+    "max_omega_slew_rate": float,
+}
+
+
+def test_schedule_response_shape():
+    body = client.post("/api/schedule/build", json={"preset": "paper_linear_ramp"}).json()
+    _assert_shape(body, SCHEDULE_RESP_SCHEMA, "ScheduleResponse")
+    _assert_shape(body["schedule"], SCHEDULE_SCHEMA, "ScheduleResponse.schedule")
+    for ch in ("omega", "delta", "phi"):
+        _assert_shape(body["schedule"][ch], PWL_SCHEMA, f"ScheduleResponse.schedule.{ch}")
+        # Same length on each channel
+        assert len(body["schedule"][ch]["times"]) == len(body["schedule"][ch]["values"])
+        # Times non-decreasing
+        ts = body["schedule"][ch]["times"]
+        for i in range(1, len(ts)):
+            assert ts[i] >= ts[i - 1]
+
+
+def test_schedule_response_pulse_violation_shape():
+    """Pulse violations use the same VIOLATION_SCHEMA as position ones."""
+    body = client.post(
+        "/api/schedule/build",
+        json={
+            "omega_breakpoints": [[0.0, 0.0], [1.0, 20.0], [2.0, 0.0]],
+            "delta_breakpoints": [[0.0, 0.0], [2.0, 0.0]],
+        },
+    ).json()
+    assert len(body["violations"]) > 0
+    for v in body["violations"]:
+        _assert_shape(v, VIOLATION_SCHEMA, "ScheduleResponse.violations")
+
+
 def test_embed_violation_shape_when_present():
     body = client.post(
         "/api/embed/atoms",

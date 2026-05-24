@@ -26,11 +26,22 @@ from api.models import (
     MANETResponse,
     MISResponse,
     NodePos,
+    PiecewiseLinearDTO,
+    ScheduleDTO,
+    ScheduleRequest,
+    ScheduleResponse,
     ViolationDTO,
 )
 from pipeline import clique_to_mis as cqm
 from pipeline import manet as manet_mod
 from pipeline.embedding import EmbedConfig, embed as embed_atoms
+from pipeline.schedule import (
+    PRESETS,
+    PiecewiseLinear,
+    Schedule,
+    from_breakpoints,
+    validate_schedule,
+)
 
 app = FastAPI(
     title="Qsimulator",
@@ -163,4 +174,60 @@ def embed_atoms_endpoint(req: EmbedRequest) -> EmbedResponse:
         missing_edges=arr.missing_edges,
         spurious_edges=arr.spurious_edges,
         violations=[ViolationDTO(**v.to_dict()) for v in arr.violations],
+    )
+
+
+# =============================================================================
+# Phase 3 — Pulse schedule builder
+# =============================================================================
+
+
+def _schedule_to_dto(s: Schedule) -> ScheduleDTO:
+    return ScheduleDTO(
+        omega=PiecewiseLinearDTO(**s.omega.to_dict()),
+        delta=PiecewiseLinearDTO(**s.delta.to_dict()),
+        phi=PiecewiseLinearDTO(**s.phi.to_dict()),
+        duration=s.duration,
+    )
+
+
+@app.get("/api/schedule/presets")
+def list_schedule_presets() -> dict:
+    """List available preset names so the frontend can populate a dropdown."""
+    return {"presets": list(PRESETS.keys())}
+
+
+@app.post("/api/schedule/build", response_model=ScheduleResponse)
+def build_schedule(req: ScheduleRequest) -> ScheduleResponse:
+    """
+    Build a Schedule from either a preset name (with optional params) or
+    explicit breakpoint lists. Always returns 200 with violations in body.
+    """
+    if req.preset is not None:
+        if req.preset not in PRESETS:
+            raise HTTPException(status_code=422, detail=f"unknown preset '{req.preset}'")
+        try:
+            schedule = PRESETS[req.preset](**req.preset_params)
+        except (TypeError, ValueError) as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+    else:
+        if req.omega_breakpoints is None or req.delta_breakpoints is None:
+            raise HTTPException(
+                status_code=422,
+                detail="either preset or omega_breakpoints+delta_breakpoints must be provided",
+            )
+        try:
+            schedule = from_breakpoints(
+                omega_breakpoints=req.omega_breakpoints,
+                delta_breakpoints=req.delta_breakpoints,
+                phi_breakpoints=req.phi_breakpoints,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+
+    violations = validate_schedule(schedule)
+    return ScheduleResponse(
+        schedule=_schedule_to_dto(schedule),
+        violations=[ViolationDTO(**v.to_dict()) for v in violations],
+        max_omega_slew_rate=schedule.omega.max_slew_rate(),
     )

@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import type { EmbedResponse, MANETResponse, MISResponse } from "../api/rest";
+import type {
+  EmbedResponse,
+  MANETResponse,
+  MISResponse,
+  ScheduleResponse,
+} from "../api/rest";
 
 export const STAGES = [
   { id: "manet", label: "MANET", he: "רשת ניידת" },
@@ -26,6 +31,9 @@ interface PipelineState {
 
   embed: EmbedResponse | null;
   setEmbed: (e: EmbedResponse | null) => void;
+
+  schedule: ScheduleResponse | null;
+  setSchedule: (s: ScheduleResponse | null) => void;
 }
 
 export const usePipeline = create<PipelineState>((set) => ({
@@ -37,4 +45,6 @@ export const usePipeline = create<PipelineState>((set) => ({
   setMIS: (m) => set({ mis: m }),
   embed: null,
   setEmbed: (e) => set({ embed: e }),
+  schedule: null,
+  setSchedule: (s) => set({ schedule: s }),
 }));

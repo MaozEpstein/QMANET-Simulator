@@ -103,6 +103,36 @@ export interface EmbedRequest {
   config?: Partial<EmbedConfigDTO>;
 }
 
+// --------------------------------------------------------------------------- //
+// Phase 3 — Schedule
+// --------------------------------------------------------------------------- //
+
+export interface PiecewiseLinearDTO {
+  times: number[];
+  values: number[];
+}
+
+export interface ScheduleDTO {
+  omega: PiecewiseLinearDTO;
+  delta: PiecewiseLinearDTO;
+  phi: PiecewiseLinearDTO;
+  duration: number;
+}
+
+export interface ScheduleRequest {
+  preset?: string;
+  preset_params?: Record<string, number>;
+  omega_breakpoints?: [number, number][];
+  delta_breakpoints?: [number, number][];
+  phi_breakpoints?: [number, number][];
+}
+
+export interface ScheduleResponse {
+  schedule: ScheduleDTO;
+  violations: ViolationDTO[];
+  max_omega_slew_rate: number;
+}
+
 export const api = {
   health: () => getJSON<{ status: string; service: string; version: string }>("/"),
   aquila: () => getJSON<AquilaSpec>("/api/aquila"),
@@ -111,4 +141,7 @@ export const api = {
   complement: (graph: GraphDTO) =>
     postJSON<{ graph: GraphDTO }, MISResponse>("/api/graph/complement", { graph }),
   embed: (req: EmbedRequest) => postJSON<EmbedRequest, EmbedResponse>("/api/embed/atoms", req),
+  presets: () => getJSON<{ presets: string[] }>("/api/schedule/presets"),
+  schedule: (req: ScheduleRequest) =>
+    postJSON<ScheduleRequest, ScheduleResponse>("/api/schedule/build", req),
 };

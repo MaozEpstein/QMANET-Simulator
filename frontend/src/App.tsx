@@ -3,6 +3,7 @@ import { api, type AquilaSpec } from "./api/rest";
 import { Stage1_MANET } from "./stages/Stage1_MANET";
 import { Stage2_Complement } from "./stages/Stage2_Complement";
 import { Stage3_Embedding } from "./stages/Stage3_Embedding";
+import { Stage4_Schedule } from "./stages/Stage4_Schedule";
 import { StagePlaceholder } from "./stages/StagePlaceholder";
 import { STAGES, usePipeline, type StageId } from "./store/pipeline";
 import { palette } from "./theme/palette";
@@ -48,7 +49,7 @@ function StageBody({ stage }: { stage: StageId }) {
     case "embedding":
       return <Stage3_Embedding />;
     case "schedule":
-      return <StagePlaceholder stage="שלב 4 · פולס אדיאבטי" eta="Phase 3 בתוכנית" />;
+      return <Stage4_Schedule />;
     case "evolution":
       return <StagePlaceholder stage="שלב 5 · אבולוציה אדיאבטית" eta="Phase 4 בתוכנית" />;
     case "measurement":

@@ -218,3 +218,41 @@ describe("api.embed", () => {
     ).rejects.toThrow(/422/);
   });
 });
+
+describe("api.schedule + api.presets", () => {
+  it("presets() returns the registered names", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({ presets: ["paper_linear_ramp", "bernien_2017_sweep"] }),
+    );
+    const res = await api.presets();
+    expect(res.presets).toContain("paper_linear_ramp");
+  });
+
+  it("schedule() posts preset and parses ScheduleResponse", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        schedule: {
+          omega: { times: [0, 4], values: [0, 0] },
+          delta: { times: [0, 4], values: [-30, 40] },
+          phi: { times: [0, 4], values: [0, 0] },
+          duration: 4,
+        },
+        violations: [],
+        max_omega_slew_rate: 37.5,
+      }),
+    );
+    const res = await api.schedule({ preset: "paper_linear_ramp" });
+    expect(res.schedule.duration).toBe(4);
+    expect(res.max_omega_slew_rate).toBe(37.5);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/schedule/build");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body).preset).toBe("paper_linear_ramp");
+  });
+
+  it("schedule() rejects on 422 for unknown preset", async () => {
+    fetchMock.mockResolvedValueOnce(err(422, "Unprocessable Entity"));
+    await expect(api.schedule({ preset: "no_such" })).rejects.toThrow(/422/);
+  });
+});
