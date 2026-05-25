@@ -142,6 +142,11 @@ describe("api.complement", () => {
       max_clique_in_G: [0, 1, 2],
       mis_in_complement: [0, 1, 2],
       size: 3,
+      all_max_cliques: [[0, 1, 2]],
+      n_max_cliques: 1,
+      alpha_g: 1,
+      chromatic_lower: 3,
+      chromatic_upper: 3,
     };
     fetchMock.mockResolvedValueOnce(ok(fake));
     const res = await api.complement(inputGraph);

@@ -3,8 +3,8 @@
  * D3 mutates DOM imperatively, so we render then inspect the SVG.
  */
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { GraphView } from "./GraphView";
 import type { GraphDTO } from "../api/rest";
 
@@ -98,5 +98,54 @@ describe("GraphView", () => {
     expect(texts).toContain("0");
     expect(texts).toContain("1");
     expect(texts).toContain("2");
+  });
+
+  it("invokes onNodeClick when a node circle is clicked", () => {
+    const handler = vi.fn();
+    const { container } = render(
+      <GraphView graph={triangle} mode="geometric" onNodeClick={handler} />,
+    );
+    const nodeCircles = container.querySelectorAll("g.nodes circle");
+    expect(nodeCircles.length).toBe(3);
+    fireEvent.click(nodeCircles[1]);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(1);
+  });
+
+  it("emphasises edges incident to the selectedNode", () => {
+    const { container } = render(
+      <GraphView graph={triangle} mode="geometric" selectedNode={0} />,
+    );
+    const lines = Array.from(container.querySelectorAll("line"));
+    // Edges (0,1) and (0,2) are incident → wider stroke than (1,2).
+    const incident = lines.filter((l) => Number(l.getAttribute("stroke-width")) >= 3);
+    const nonIncident = lines.filter((l) => Number(l.getAttribute("stroke-width")) < 3);
+    expect(incident.length).toBe(2);
+    expect(nonIncident.length).toBe(1);
+  });
+
+  it("renders the stats badge with n, m and density when showStatsBadge=true", () => {
+    render(
+      <GraphView graph={triangle} mode="geometric" showStatsBadge width={300} height={300} />,
+    );
+    // n=3, m=3, density = 3 / (3*2/2) = 1.0
+    expect(screen.getByText(/n=3/)).toBeInTheDocument();
+    expect(screen.getByText(/density=1\.00/)).toBeInTheDocument();
+  });
+
+  it("colours the highlight set with the override colour", () => {
+    const { container } = render(
+      <GraphView
+        graph={triangle}
+        mode="geometric"
+        highlight={new Set([0])}
+        highlightColor="#10b981"
+      />,
+    );
+    const nodeCircles = Array.from(container.querySelectorAll("g.nodes circle"));
+    // The highlighted node should carry the override fill.
+    const highlighted = nodeCircles.find((c) => c.getAttribute("r") === "10");
+    expect(highlighted).toBeDefined();
+    expect(highlighted!.getAttribute("fill")).toBe("#10b981");
   });
 });

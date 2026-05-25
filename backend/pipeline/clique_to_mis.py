@@ -99,6 +99,105 @@ def max_clique(g: Graph) -> list[int]:
     return sorted(int(v) for v in clique)
 
 
+# Cap on how many max cliques we enumerate even when the graph is small enough
+# to enumerate them all in principle. Highly symmetric graphs (Turán T(9,3),
+# Petersen, K_{n,n}) have many cliques of the same maximum size; returning all
+# of them would balloon the JSON response and the UI cycle button without
+# adding insight past the first ~10. The user can still see the count from
+# `n_max_cliques`.
+MAX_CLIQUE_ENUM_LIMIT: int = 12
+
+
+def chromatic_bounds(g: Graph) -> tuple[int, int]:
+    """
+    Return ``(lower, upper)`` bounds on the chromatic number χ(G).
+
+    χ(G) is NP-hard to compute exactly, so we report a pair:
+      - lower bound: ω(G), the clique number. Each clique needs |C| distinct
+        colors, so χ(G) ≥ ω(G).
+      - upper bound: the size of a greedy coloring under the saturation-largest-
+        first heuristic (DSATUR). DSATUR is optimal on bipartite, cycles and
+        most "easy" graphs, and within a small factor of optimal otherwise.
+
+    For perfect graphs (interval, comparability, chordal, …) the bounds coincide
+    and report χ exactly. For random graphs they are usually within 1–2 of each
+    other in this size range.
+    """
+    if g.n_nodes == 0:
+        return 0, 0
+    if g.n_nodes > EXACT_MIS_MAX_NODES:
+        return 0, g.n_nodes
+    G = to_networkx(g)
+    if G.number_of_edges() == 0:
+        # All-isolated → one color suffices, ω = 1 (any singleton).
+        return 1, 1
+    lower = len(max_clique(g))
+    coloring = nx.coloring.greedy_color(G, strategy="saturation_largest_first")
+    upper = (max(coloring.values()) + 1) if coloring else 1
+    # Keep bounds consistent in the unusual case where the greedy beats ω
+    # (cannot happen mathematically, but rounding guards against weird inputs).
+    if upper < lower:
+        upper = lower
+    return int(lower), int(upper)
+
+
+def alpha(g: Graph) -> int:
+    """Independence number α(G) = |MIS(G)|.
+
+    Note this is the MIS of G *itself* — different from the existing pipeline,
+    which solves MIS on Ḡ (the complement) because that is the clique problem
+    on G. Stage 2 reports both side by side so the reader sees the full graph
+    profile, not just the dual quantity."""
+    if g.n_nodes == 0:
+        return 0
+    if g.n_nodes > EXACT_MIS_MAX_NODES:
+        return -1  # sentinel: "too large to compute"
+    return len(max_independent_set(g))
+
+
+def all_max_cliques(g: Graph) -> tuple[list[list[int]], int]:
+    """
+    Enumerate maximum-size cliques of G.
+
+    Returns ``(cliques, total_count)`` where ``cliques`` is at most
+    ``MAX_CLIQUE_ENUM_LIMIT`` distinct maximum cliques (sorted, deduplicated)
+    and ``total_count`` is the true number found — so the UI can show
+    "showing 12 of 47 max cliques" when there are more than the cap.
+
+    Used by Stage 2 to cycle through alternative optima so the user can see
+    the solution degeneracy: a quantum sampler returns a superposition over
+    *all* of these, which directly explains the bitstring histogram in Stage 6.
+    """
+    if g.n_nodes == 0:
+        return [], 0
+    if g.n_nodes > EXACT_MIS_MAX_NODES:
+        raise ValueError(
+            f"Exact MaxClique enumeration supported only up to "
+            f"{EXACT_MIS_MAX_NODES} nodes (got {g.n_nodes})."
+        )
+    G = to_networkx(g)
+    # find_cliques yields every *maximal* clique (Bron-Kerbosch). Filter to
+    # the largest size — those are the *maximum* cliques.
+    all_maximal = list(nx.find_cliques(G))
+    if not all_maximal:
+        return [], 0
+    omega = max(len(c) for c in all_maximal)
+    max_size_cliques = [
+        sorted(int(v) for v in c) for c in all_maximal if len(c) == omega
+    ]
+    # Deduplicate (find_cliques can list the same set in different orders).
+    seen: set[tuple[int, ...]] = set()
+    unique: list[list[int]] = []
+    for c in max_size_cliques:
+        key = tuple(c)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(c)
+    total = len(unique)
+    return unique[:MAX_CLIQUE_ENUM_LIMIT], total
+
+
 def is_independent_set(g: Graph, subset: list[int]) -> bool:
     edge_set = {tuple(sorted(e)) for e in g.edges}
     s = set(subset)

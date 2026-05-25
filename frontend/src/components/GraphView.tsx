@@ -20,12 +20,20 @@ interface Props {
   height?: number;
   mode?: "geometric" | "force";
   highlight?: Set<number>;
+  /** Custom color for the primary highlight set. Defaults to palette.queraPurpleGlow. */
+  highlightColor?: string;
   /** When given (only for geometric MANET), draws a translucent comm-radius ring per node. */
   commRadius?: number;
   /** Caption shown in the top-left of the SVG. */
   caption?: string;
   /** When true, edges that go between two highlighted nodes are drawn extra-bright (clique edges). */
   emphasizeHighlightedEdges?: boolean;
+  /** Single node "focus": its edges are emphasised so the user sees its neighbourhood. */
+  selectedNode?: number | null;
+  /** Click handler; node id is passed. */
+  onNodeClick?: (id: number) => void;
+  /** When true, show "n=… m=… density=…" badge in the top-right. */
+  showStatsBadge?: boolean;
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -47,10 +55,15 @@ export function GraphView({
   height = 500,
   mode = "force",
   highlight,
+  highlightColor,
   commRadius,
   caption,
   emphasizeHighlightedEdges = false,
+  selectedNode = null,
+  onNodeClick,
+  showStatsBadge = false,
 }: Props) {
+  const hiColor = highlightColor ?? palette.queraPurpleGlow;
   const svgRef = useRef<SVGSVGElement | null>(null);
   const simRef = useRef<d3.Simulation<SimNode, undefined> | null>(null);
 
@@ -134,6 +147,16 @@ export function GraphView({
     }
 
     // Links
+    const isCliqueEdge = (d: SimLink) =>
+      emphasizeHighlightedEdges &&
+      !!highlight &&
+      highlight.has(d.source) &&
+      highlight.has(d.target);
+    const isNeighbourEdge = (d: SimLink) =>
+      selectedNode !== null &&
+      selectedNode !== undefined &&
+      (d.source === selectedNode || d.target === selectedNode);
+
     const linkSel = svg
       .append("g")
       .attr("class", "links")
@@ -143,34 +166,20 @@ export function GraphView({
       .append("line")
       .attr("stroke-linecap", "round")
       .attr("stroke", (d) => {
-        if (
-          emphasizeHighlightedEdges &&
-          highlight &&
-          highlight.has(d.source) &&
-          highlight.has(d.target)
-        ) {
-          return palette.queraPurpleGlow;
-        }
+        if (isNeighbourEdge(d)) return palette.warn;
+        if (isCliqueEdge(d)) return hiColor;
         return palette.textPrimary;
       })
       .attr("stroke-opacity", (d) => {
-        if (
-          emphasizeHighlightedEdges &&
-          highlight &&
-          highlight.has(d.source) &&
-          highlight.has(d.target)
-        )
-          return 0.95;
+        if (isNeighbourEdge(d)) return 1.0;
+        if (isCliqueEdge(d)) return 0.95;
+        // Dim non-neighbour edges when a node is selected so the focus reads cleanly.
+        if (selectedNode !== null && selectedNode !== undefined) return 0.25;
         return 0.75;
       })
       .attr("stroke-width", (d) => {
-        if (
-          emphasizeHighlightedEdges &&
-          highlight &&
-          highlight.has(d.source) &&
-          highlight.has(d.target)
-        )
-          return 2.8;
+        if (isNeighbourEdge(d)) return 3.2;
+        if (isCliqueEdge(d)) return 2.8;
         return 1.8;
       });
 
@@ -183,17 +192,27 @@ export function GraphView({
       .enter()
       .append("g");
 
+    const isSelected = (id: number) =>
+      selectedNode !== null && selectedNode !== undefined && id === selectedNode;
+    const isHighlighted = (id: number) => !!highlight && highlight.has(id);
+
     nodeSel
       .append("circle")
-      .attr("r", (d) => (highlight && highlight.has(d.id) ? 10 : 7))
+      .attr("r", (d) => (isSelected(d.id) ? 11 : isHighlighted(d.id) ? 10 : 7))
       .attr("fill", (d) =>
-        highlight && highlight.has(d.id) ? palette.queraPurpleGlow : palette.atomGround,
+        isSelected(d.id) ? palette.warn : isHighlighted(d.id) ? hiColor : palette.atomGround,
       )
       .attr("stroke", (d) =>
-        highlight && highlight.has(d.id) ? "#fff" : palette.queraPurpleSoft,
+        isSelected(d.id) || isHighlighted(d.id) ? "#fff" : palette.queraPurpleSoft,
       )
-      .attr("stroke-width", (d) => (highlight && highlight.has(d.id) ? 2 : 1))
-      .attr("filter", (d) => (highlight && highlight.has(d.id) ? "url(#node-glow)" : null));
+      .attr("stroke-width", (d) => (isSelected(d.id) ? 2.5 : isHighlighted(d.id) ? 2 : 1))
+      .attr("filter", (d) =>
+        isSelected(d.id) || isHighlighted(d.id) ? "url(#node-glow)" : null,
+      )
+      .style("cursor", onNodeClick ? "pointer" : "default")
+      .on("click", (_event, d) => {
+        if (onNodeClick) onNodeClick(d.id);
+      });
 
     nodeSel
       .append("text")
@@ -215,6 +234,47 @@ export function GraphView({
         .attr("font-size", 12)
         .attr("font-family", "JetBrains Mono, monospace")
         .attr("fill", palette.textSecondary);
+    }
+
+    // Stats badge (top-right): n / m / density. Helps the user spot at a glance
+    // that the complement has the inverse edge count of the original — sum is
+    // always N(N-1)/2.
+    if (showStatsBadge) {
+      const n = graph.n_nodes;
+      const m = graph.edges.length;
+      const maxEdges = n > 1 ? (n * (n - 1)) / 2 : 0;
+      const density = maxEdges > 0 ? m / maxEdges : 0;
+      const lines = [
+        `n=${n}  m=${m}`,
+        `density=${density.toFixed(2)}`,
+      ];
+      const padX = 8;
+      const padY = 6;
+      const lineH = 14;
+      const boxW = 116;
+      const boxH = padY * 2 + lineH * lines.length;
+      const x0 = width - boxW - 10;
+      const y0 = 10;
+      const g = svg.append("g");
+      g.append("rect")
+        .attr("x", x0)
+        .attr("y", y0)
+        .attr("width", boxW)
+        .attr("height", boxH)
+        .attr("rx", 6)
+        .attr("ry", 6)
+        .attr("fill", palette.bgPanel)
+        .attr("stroke", palette.queraPurpleSoft)
+        .attr("stroke-opacity", 0.6);
+      lines.forEach((line, i) => {
+        g.append("text")
+          .text(line)
+          .attr("x", x0 + padX)
+          .attr("y", y0 + padY + lineH * (i + 1) - 4)
+          .attr("font-size", 11)
+          .attr("font-family", "JetBrains Mono, monospace")
+          .attr("fill", palette.textSecondary);
+      });
     }
 
     // Force simulation (force mode)
@@ -256,7 +316,20 @@ export function GraphView({
       simRef.current?.stop();
       simRef.current = null;
     };
-  }, [graph, width, height, mode, highlight, commRadius, caption, emphasizeHighlightedEdges]);
+  }, [
+    graph,
+    width,
+    height,
+    mode,
+    highlight,
+    hiColor,
+    commRadius,
+    caption,
+    emphasizeHighlightedEdges,
+    selectedNode,
+    onNodeClick,
+    showStatsBadge,
+  ]);
 
   return (
     <div dir="ltr" style={{ display: "inline-block" }}>

@@ -186,11 +186,22 @@ def graph_complement(req: ComplementRequest) -> MISResponse:
     gbar = cqm.complement(g)
 
     max_clique: list[int] = []
+    all_cliques: list[list[int]] = []
+    n_max_cliques = 0
+    alpha_g = 0
+    chrom_lo = 0
+    chrom_hi = 0
     if g.n_nodes <= cqm.EXACT_MIS_MAX_NODES:
         try:
-            max_clique = cqm.max_clique(g)
+            all_cliques, n_max_cliques = cqm.all_max_cliques(g)
+            alpha_g = cqm.alpha(g)
+            chrom_lo, chrom_hi = cqm.chromatic_bounds(g)
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e)) from e
+        if all_cliques:
+            # Keep `max_clique_in_G` populated for backwards compatibility with
+            # downstream stages (3, 8) that read it directly.
+            max_clique = all_cliques[0]
 
     return MISResponse(
         graph=_graph_to_dto(g),
@@ -198,6 +209,11 @@ def graph_complement(req: ComplementRequest) -> MISResponse:
         max_clique_in_G=max_clique,
         mis_in_complement=max_clique,
         size=len(max_clique),
+        all_max_cliques=all_cliques,
+        n_max_cliques=n_max_cliques,
+        alpha_g=alpha_g,
+        chromatic_lower=chrom_lo,
+        chromatic_upper=chrom_hi,
     )
 
 

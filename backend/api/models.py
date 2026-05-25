@@ -41,6 +41,21 @@ class MISResponse(BaseModel):
     mis_in_complement: list[int]
     """Same set — viewed as a maximum independent set in the complement."""
     size: int
+    all_max_cliques: list[list[int]] = Field(default_factory=list)
+    """Up to MAX_CLIQUE_ENUM_LIMIT distinct cliques of maximum size — for the
+    UI's 'cycle through optima' button. ``max_clique_in_G`` is the first
+    element when this is non-empty."""
+    n_max_cliques: int = 0
+    """True number of maximum cliques (may exceed len(all_max_cliques) when the
+    graph has many symmetric optima; the UI then renders 'showing X of Y')."""
+    alpha_g: int = 0
+    """Independence number α(G) — size of the MIS of G itself (not of Ḡ).
+    Equals 0 for empty graphs and -1 when the graph is too large to compute."""
+    chromatic_lower: int = 0
+    """Lower bound on χ(G) — equals ω(G) (the clique number)."""
+    chromatic_upper: int = 0
+    """Upper bound on χ(G) — DSATUR greedy coloring. For perfect graphs this
+    equals the true chromatic number; otherwise within 1–2 in this size range."""
 
 
 # --------------------------------------------------------------------------- #

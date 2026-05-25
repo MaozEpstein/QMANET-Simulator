@@ -150,6 +150,11 @@ describe("usePipeline store", () => {
       max_clique_in_G: [],
       mis_in_complement: [],
       size: 0,
+      all_max_cliques: [],
+      n_max_cliques: 0,
+      alpha_g: 0,
+      chromatic_lower: 0,
+      chromatic_upper: 0,
     });
     expect(usePipeline.getState().mis).not.toBeNull();
     usePipeline.getState().setMIS(null);

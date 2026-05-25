@@ -62,6 +62,11 @@ export interface MISResponse {
   max_clique_in_G: number[];
   mis_in_complement: number[];
   size: number;
+  all_max_cliques: number[][];
+  n_max_cliques: number;
+  alpha_g: number;
+  chromatic_lower: number;
+  chromatic_upper: number;
 }
 
 // --------------------------------------------------------------------------- //
