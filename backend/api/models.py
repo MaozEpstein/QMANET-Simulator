@@ -245,3 +245,44 @@ class RoutingResponse(BaseModel):
     mean_hops: float
     max_hops: int
     routes: list[RouteDTO]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 7 — Amazon Braket bridge
+# --------------------------------------------------------------------------- #
+
+
+class BraketPayloadRequest(BaseModel):
+    """Build a Braket payload from atoms + schedule."""
+
+    positions: list[NodePos]
+    schedule: ScheduleDTO
+    shots: int = Field(default=200, ge=1, le=1000)
+
+
+class CostEstimateDTO(BaseModel):
+    shot_fee_usd: float
+    task_fee_usd: float
+    total_usd: float
+    shots: int
+
+
+class BraketPayloadResponse(BaseModel):
+    payload: dict
+    """JSON-serializable Braket AnalogHamiltonianSimulation spec."""
+
+    cost_estimate: CostEstimateDTO
+    runtime_estimate_seconds: float
+    device_arn: str
+    preflight_violations: list[ViolationDTO]
+
+
+class BraketSubmitRequest(BraketPayloadRequest):
+    region: str = "us-east-1"
+
+
+class BraketSubmitResponse(BaseModel):
+    submitted: bool
+    message: str
+    """Human-readable status. If `submitted=false`, explains why
+    (e.g. SDK missing, credentials missing, dry-run mode)."""

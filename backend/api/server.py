@@ -24,7 +24,12 @@ from contextlib import suppress
 from fastapi import WebSocket, WebSocketDisconnect
 
 from api.models import (
+    BraketPayloadRequest,
+    BraketPayloadResponse,
+    BraketSubmitRequest,
+    BraketSubmitResponse,
     ComplementRequest,
+    CostEstimateDTO,
     EmbedRequest,
     EmbedResponse,
     GraphDTO,
@@ -59,6 +64,15 @@ from pipeline.classical_sa import SAConfig, simulated_annealing
 from pipeline.embedding import EmbedConfig, embed as embed_atoms
 from pipeline.measurement import measure
 from pipeline.postprocess import postprocess, postprocess_many, summarize_postprocess
+from aquila.braket_adapter import (
+    AQUILA_DEVICE_ARN,
+    BraketUnavailable,
+    build_payload,
+    estimate_cost,
+    estimate_runtime,
+    preflight_check,
+    submit_to_braket,
+)
 from pipeline.routing import build_routing_table
 from pipeline.schedule import (
     PRESETS,
@@ -381,6 +395,81 @@ def classical_sa(req: SARequest) -> SAResponse:
 # =============================================================================
 # Phase 6 — MANET routing via the backbone clique
 # =============================================================================
+
+
+# =============================================================================
+# Phase 7 — Amazon Braket bridge (dispatch to real Aquila hardware)
+# =============================================================================
+
+
+def _build_braket_payload_from_request(req: BraketPayloadRequest):
+    positions = [(p.x, p.y) for p in req.positions]
+    sched = req.schedule
+    return build_payload(
+        positions_um=positions,
+        omega_times_us=list(sched.omega.times),
+        omega_values_rad_us=list(sched.omega.values),
+        delta_times_us=list(sched.delta.times),
+        delta_values_rad_us=list(sched.delta.values),
+        phi_times_us=list(sched.phi.times),
+        phi_values_rad=list(sched.phi.values),
+        shots=req.shots,
+    )
+
+
+@app.post("/api/braket/payload", response_model=BraketPayloadResponse)
+def braket_payload(req: BraketPayloadRequest) -> BraketPayloadResponse:
+    """
+    Dry-run: build the Braket payload + cost + runtime estimate + preflight
+    constraint check. Doesn't touch AWS; safe to call always.
+    """
+    try:
+        payload = _build_braket_payload_from_request(req)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    positions = [(p.x, p.y) for p in req.positions]
+    violations = preflight_check(
+        positions_um=positions,
+        omega_values_rad_us=list(req.schedule.omega.values),
+        delta_values_rad_us=list(req.schedule.delta.values),
+        duration_us=req.schedule.duration,
+    )
+    cost = estimate_cost(req.shots)
+    runtime_s = estimate_runtime(req.shots)
+    return BraketPayloadResponse(
+        payload=payload.to_dict(),
+        cost_estimate=CostEstimateDTO(**cost.to_dict()),
+        runtime_estimate_seconds=runtime_s,
+        device_arn=AQUILA_DEVICE_ARN,
+        preflight_violations=[ViolationDTO(**v.to_dict()) for v in violations],
+    )
+
+
+@app.post("/api/braket/submit", response_model=BraketSubmitResponse)
+def braket_submit(req: BraketSubmitRequest) -> BraketSubmitResponse:
+    """
+    Real submission to Aquila via Braket. Fails gracefully (200 + submitted=False)
+    when the SDK isn't installed or AWS credentials are missing — so the UI
+    can keep functioning as a sandbox even without an AWS account.
+    """
+    try:
+        payload = _build_braket_payload_from_request(req)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    try:
+        result = submit_to_braket(payload, region=req.region)
+        return BraketSubmitResponse(
+            submitted=True,
+            message=f"submitted: {result}",
+        )
+    except BraketUnavailable as e:
+        return BraketSubmitResponse(submitted=False, message=str(e))
+    except NotImplementedError as e:
+        # Until we wire the real AnalogHamiltonianSimulation call, payload is
+        # ready but the dispatcher refuses on purpose.
+        return BraketSubmitResponse(submitted=False, message=str(e))
 
 
 @app.post("/api/routing/build", response_model=RoutingResponse)

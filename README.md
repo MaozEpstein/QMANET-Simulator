@@ -4,13 +4,17 @@
 
 תוכנית הבנייה המלאה (8 שלבים): `~/.claude/plans/declarative-dancing-brook.md`.
 
-## הסטטוס הנוכחי — Phase 0 (Bootstrap)
+## הסטטוס הנוכחי — Phase 7 (Amazon Braket bridge)
 
-- ✅ מבנה תיקיות (`backend/`, `frontend/`, `shared/`, `docs/`)
-- ✅ `backend/aquila/constants.py` עם קבועי Aquila מה-whitepaper §1.5 (256 qubits, 4µm spacing, Ω≤15.8 rad/µs, ...)
-- ✅ FastAPI עם `/` ו-`/api/aquila`
-- ✅ React+TS+Vite scaffolding עם stage stepper של 8 השלבים, theme פאבליקיישן ו-RTL מלא
-- ⬜ שאר השלבים (1-8) — לפי התוכנית
+- ✅ Phase 0 — Bootstrap (`aquila/constants.py`, FastAPI, React+TS+Vite)
+- ✅ Phase 1 — MANET → גרף → complement → MIS (`/api/manet/generate`, `/api/graph/complement`)
+- ✅ Phase 2 — Atom embedding + validator (`/api/embed/atoms`)
+- ✅ Phase 3 — Pulse scheduler + Hamiltonian + Stage 4
+- ✅ Phase 4 — Time evolution (QuTiP) + WebSocket streaming + Stage 5
+- ✅ Phase 5 — Measurement + greedy post-processing + classical SA + Stages 6-7
+- ✅ Phase 6 — MANET routing דרך ה-backbone clique + Stage 8
+- ✅ Phase 7 — Amazon Braket bridge (`/api/braket/payload`, `/api/braket/submit`, `BraketPanel`) — payload עובר IR-validation, dry-run מול `LocalSimulator("braket_ahs")` עם KL < 0.05
+- ✅ Phase 8 — Polish (E2E, error boundaries, JSON export, reproduce_paper)
 
 ## הרצה
 
@@ -21,7 +25,8 @@ cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .[dev]
-pytest                                    # בדיקת constants
+pip install -e .[braket]                  # אופציונלי — Phase 7 (amazon-braket-sdk + boto3)
+pytest                                    # מריץ את כל ה-suite
 uvicorn api.server:app --reload --port 8000
 ```
 

@@ -358,6 +358,94 @@ def test_embed_violation_shape_when_present():
         _assert_shape(v, VIOLATION_SCHEMA, "EmbedResponse.violations")
 
 
+# --------------------------------------------------------------------------- #
+# /api/braket/payload -> BraketPayloadResponse  (Phase 7)
+# --------------------------------------------------------------------------- #
+
+
+COST_ESTIMATE_SCHEMA = {
+    "shot_fee_usd": float,
+    "task_fee_usd": float,
+    "total_usd": float,
+    "shots": int,
+}
+
+BRAKET_PAYLOAD_RESP_SCHEMA = {
+    "payload": dict,
+    "cost_estimate": dict,
+    "runtime_estimate_seconds": float,
+    "device_arn": str,
+    "preflight_violations": list,
+}
+
+BRAKET_SUBMIT_RESP_SCHEMA = {
+    "submitted": bool,
+    "message": str,
+}
+
+
+def _braket_request_body(shots: int = 100) -> dict:
+    return {
+        "positions": [
+            {"id": 0, "x": 10.0, "y": 10.0},
+            {"id": 1, "x": 15.0, "y": 10.0},
+        ],
+        "schedule": {
+            "omega": {"times": [0.0, 0.4, 3.6, 4.0], "values": [0.0, 15.0, 15.0, 0.0]},
+            "delta": {
+                "times": [0.0, 0.4, 3.6, 4.0],
+                "values": [-30.0, -30.0, 40.0, 40.0],
+            },
+            "phi": {"times": [0.0, 4.0], "values": [0.0, 0.0]},
+            "duration": 4.0,
+        },
+        "shots": shots,
+    }
+
+
+def test_braket_payload_response_shape():
+    body = client.post("/api/braket/payload", json=_braket_request_body()).json()
+    _assert_shape(body, BRAKET_PAYLOAD_RESP_SCHEMA, "BraketPayloadResponse")
+    _assert_shape(body["cost_estimate"], COST_ESTIMATE_SCHEMA, "BraketPayloadResponse.cost_estimate")
+    # device_arn must point to Aquila
+    assert body["device_arn"].endswith("Aquila")
+    # payload has the Braket-spec keys
+    p = body["payload"]
+    assert "setup" in p and "hamiltonian" in p and "shots" in p
+    assert "ahs_register" in p["setup"]
+    assert {"sites", "filling"} <= set(p["setup"]["ahs_register"].keys())
+    assert "drivingFields" in p["hamiltonian"]
+    # Driving field shape
+    drive = p["hamiltonian"]["drivingFields"][0]
+    for ch in ("amplitude", "phase", "detuning"):
+        assert ch in drive
+        assert "time_series" in drive[ch]
+        ts = drive[ch]["time_series"]
+        assert "times" in ts and "values" in ts
+        assert len(ts["times"]) == len(ts["values"])
+
+
+def test_braket_submit_response_shape():
+    body = client.post(
+        "/api/braket/submit",
+        json={**_braket_request_body(), "region": "us-east-1"},
+    ).json()
+    _assert_shape(body, BRAKET_SUBMIT_RESP_SCHEMA, "BraketSubmitResponse")
+
+
+def test_braket_payload_preflight_violation_shape_when_present():
+    """When a violation is reported, it must satisfy VIOLATION_SCHEMA."""
+    body = _braket_request_body()
+    body["positions"] = [
+        {"id": 0, "x": 10.0, "y": 10.0},
+        {"id": 1, "x": 12.0, "y": 10.0},  # 2µm — too close
+    ]
+    resp = client.post("/api/braket/payload", json=body).json()
+    assert len(resp["preflight_violations"]) > 0
+    for v in resp["preflight_violations"]:
+        _assert_shape(v, VIOLATION_SCHEMA, "BraketPayloadResponse.preflight_violations")
+
+
 def test_mis_response_max_clique_and_mis_consistent():
     """The 'max_clique_in_G' and 'mis_in_complement' lists are two names for the same set."""
     body = client.post(

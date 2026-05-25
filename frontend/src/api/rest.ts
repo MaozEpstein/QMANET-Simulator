@@ -236,6 +236,36 @@ export interface RoutingResponse {
   routes: RouteDTO[];
 }
 
+// --------------------------------------------------------------------------- //
+// Phase 7 — Amazon Braket bridge
+// --------------------------------------------------------------------------- //
+
+export interface CostEstimateDTO {
+  shot_fee_usd: number;
+  task_fee_usd: number;
+  total_usd: number;
+  shots: number;
+}
+
+export interface BraketPayloadRequest {
+  positions: NodePos[];
+  schedule: ScheduleDTO;
+  shots: number;
+}
+
+export interface BraketPayloadResponse {
+  payload: Record<string, unknown>;
+  cost_estimate: CostEstimateDTO;
+  runtime_estimate_seconds: number;
+  device_arn: string;
+  preflight_violations: ViolationDTO[];
+}
+
+export interface BraketSubmitResponse {
+  submitted: boolean;
+  message: string;
+}
+
 export const api = {
   health: () => getJSON<{ status: string; service: string; version: string }>("/"),
   aquila: () => getJSON<AquilaSpec>("/api/aquila"),
@@ -270,5 +300,12 @@ export const api = {
     postJSON<{ graph: GraphDTO; backbone: number[] }, RoutingResponse>(
       "/api/routing/build",
       { graph, backbone },
+    ),
+  braketPayload: (req: BraketPayloadRequest) =>
+    postJSON<BraketPayloadRequest, BraketPayloadResponse>("/api/braket/payload", req),
+  braketSubmit: (req: BraketPayloadRequest & { region?: string }) =>
+    postJSON<BraketPayloadRequest & { region?: string }, BraketSubmitResponse>(
+      "/api/braket/submit",
+      req,
     ),
 };

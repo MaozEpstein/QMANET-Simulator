@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { AtomArray2D } from "../components/AtomArray2D";
+import { BraketPanel } from "../components/BraketPanel";
 import { EvolutionPlot } from "../components/EvolutionPlot";
 import { ExportButton } from "../components/ExportButton";
 import { Panel } from "../components/Panel";
@@ -206,6 +207,12 @@ export function Stage5_Evolution() {
           />
         </Panel>
       )}
+
+      <BraketPanel
+        positions={embed.positions}
+        schedule={schedule.schedule}
+        defaultShots={100}
+      />
 
       <Panel
         title="הסבר"
