@@ -49,7 +49,7 @@ class MISResponse(BaseModel):
 
 
 class EmbedConfigDTO(BaseModel):
-    lattice_spacing_um: float = Field(default=5.0, gt=0.0, le=75.0)
+    lattice_spacing_um: float = Field(default=6.5, gt=0.0, le=75.0)
     rabi_rad_us: float = Field(default=15.0, ge=0.0, le=15.8)
     detuning_rad_us: float = Field(default=0.0, ge=-125.0, le=125.0)
     layout_seed: int = 0
@@ -122,6 +122,33 @@ class ScheduleResponse(BaseModel):
     """Largest |dΩ/dt| seen in any segment (rad/µs²)."""
 
 
+class ScheduleGapRequest(BaseModel):
+    positions: list[NodePos]
+    schedule: ScheduleDTO
+    n_samples: int = Field(default=25, ge=3, le=200)
+
+
+class GapTraceDTO(BaseModel):
+    times: list[float]
+    """Sample times in µs."""
+    gaps: list[float]
+    """Spectral gap E_1(t) − E_0(t) at each sample, rad/µs."""
+    min_gap: float
+    """δ_min — minimum encountered (rad/µs)."""
+    t_at_min_gap: float
+    """The time at which δ_min was attained (µs)."""
+    suggested_t_us: float | None = None
+    """Adiabatic-bound estimate ≈ 1/δ_min² (µs). null when δ_min == 0."""
+    n_atoms: int
+
+
+class ScheduleGapResponse(BaseModel):
+    trace: GapTraceDTO | None
+    """null when the system is too large (>GAP_MAX_ATOMS) to diagonalise."""
+    n_atoms: int
+    max_atoms: int
+
+
 # --------------------------------------------------------------------------- #
 # Phase 4 — Evolution
 # --------------------------------------------------------------------------- #
@@ -185,6 +212,8 @@ class PostProcessResultDTO(BaseModel):
     final_size: int
     added: list[int]
     is_valid: bool
+    r_ratio: float | None = None
+    """Approximation ratio R = final_size / |MIS*| per Ebadi 2022. Null when |MIS*| unknown."""
 
 
 class PostProcessBatchRequest(BaseModel):
@@ -202,7 +231,8 @@ class SAConfigDTO(BaseModel):
     n_sweeps: int = Field(default=200, ge=1, le=10000)
     t_initial: float = Field(default=2.0, gt=0.0)
     t_final: float = Field(default=0.01, gt=0.0)
-    penalty: float = Field(default=2.0, ge=1.0)
+    penalty: float | None = Field(default=None, ge=1.0)
+    """None ⇒ auto: max(2, max_graph_degree) per Lucas 2014 §2.3."""
     seed: int | None = 0
 
 
@@ -217,6 +247,12 @@ class SAResponse(BaseModel):
     best_energy: float
     n_iterations: int
     energy_trace: list[float]
+    penalty_used: float = 0.0
+    """The actual penalty multiplier the SA used (post auto-resolution)."""
+    target_mis_size: int | None = None
+    """Exact |MIS*| for graphs ≤ 28 nodes, else null."""
+    r_ratio: float | None = None
+    """Approximation ratio R = best_size / |MIS*| (Ebadi 2022). Null when unknown."""
 
 
 # --------------------------------------------------------------------------- #

@@ -110,7 +110,7 @@ def test_two_qubit_zero_drive_diagonal_interaction():
 def test_blockaded_pair_close_distance_shifts_rr_state_up():
     """For d small enough, the |rr> state is pushed far above the others."""
     eigs_close = blockade_pair_eigenvalues(omega=0.0, delta=0.0, distance_um=4.0)
-    # |rr> at C6/4^6 = 862690 / 4096 ≈ 210 rad/µs is huge
+    # |rr> at C6/4^6 = 5_420_503 / 4096 ≈ 1324 rad/µs is huge
     assert eigs_close[-1] > 100.0
     assert eigs_close[0] == pytest.approx(0.0, abs=1e-9)
 

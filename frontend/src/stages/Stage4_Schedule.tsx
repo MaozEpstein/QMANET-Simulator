@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { api } from "../api/rest";
+import { api, type GapTraceDTO } from "../api/rest";
 import { ConstraintBadge, ConstraintSummary } from "../components/ConstraintBadge";
 import { HamiltonianTeX } from "../components/HamiltonianTeX";
 import { Panel } from "../components/Panel";
@@ -8,6 +8,13 @@ import { PulsePlot, valueAt } from "../components/PulsePlot";
 import { Slider } from "../components/Slider";
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
+
+type PresetName = "paper_linear_ramp" | "paper_smooth_blackman";
+
+const PRESET_LABELS: Record<PresetName, string> = {
+  paper_linear_ramp: "Linear ramp (טרפז)",
+  paper_smooth_blackman: "Blackman חלק",
+};
 
 const AQUILA_LIMITS = {
   rabiMax: 15.8,
@@ -32,25 +39,55 @@ const DEFAULT_PARAMS: PaperPresetParams = {
 export function Stage4_Schedule() {
   const { embed, schedule, setSchedule } = usePipeline();
   const [params, setParams] = useState<PaperPresetParams>(DEFAULT_PARAMS);
+  const [preset, setPreset] = useState<PresetName>("paper_linear_ramp");
   const [cursorT, setCursorT] = useState<number>(2.0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [gap, setGap] = useState<GapTraceDTO | null>(null);
+  const [gapAtomsTooMany, setGapAtomsTooMany] = useState<{ n: number; max: number } | null>(null);
+  const [gapLoading, setGapLoading] = useState(false);
 
   const run = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
       const res = await api.schedule({
-        preset: "paper_linear_ramp",
+        preset,
         preset_params: { ...params },
       });
       setSchedule(res);
+      setGap(null); // schedule changed → stale gap
+      setGapAtomsTooMany(null);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [params, setSchedule]);
+  }, [params, preset, setSchedule]);
+
+  const runGapAnalysis = useCallback(async () => {
+    if (!schedule || !embed) return;
+    setGapLoading(true);
+    setErr(null);
+    try {
+      const res = await api.scheduleGap({
+        positions: embed.positions,
+        schedule: schedule.schedule,
+        n_samples: 25,
+      });
+      if (res.trace === null) {
+        setGap(null);
+        setGapAtomsTooMany({ n: res.n_atoms, max: res.max_atoms });
+      } else {
+        setGap(res.trace);
+        setGapAtomsTooMany(null);
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setGapLoading(false);
+    }
+  }, [schedule, embed]);
 
   useEffect(() => {
     run();
@@ -78,6 +115,41 @@ export function Stage4_Schedule() {
           }}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <div
+                style={{
+                  fontSize: 11.5,
+                  color: palette.textSecondary,
+                  marginBottom: 6,
+                }}
+              >
+                סוג פולס
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {(Object.keys(PRESET_LABELS) as PresetName[]).map((p) => {
+                  const active = p === preset;
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => setPreset(p)}
+                      style={{
+                        flex: 1,
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${active ? palette.queraPurpleGlow : palette.queraPurpleSoft}`,
+                        background: active ? palette.queraPurple : "transparent",
+                        color: active ? "#fff" : palette.textSecondary,
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {PRESET_LABELS[p]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <Slider
               label="משך כולל T"
               value={params.t_total_us}
@@ -167,6 +239,102 @@ export function Stage4_Schedule() {
                   label="atoms"
                   value={String(embed?.n_atoms ?? 0)}
                 />
+              </div>
+            )}
+            {schedule && embed && (
+              <div
+                style={{
+                  padding: 12,
+                  background: palette.bgInset,
+                  borderRadius: 8,
+                  border: `1px solid ${palette.queraPurpleSoft}`,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontWeight: 600, fontSize: 12, color: palette.textPrimary }}>
+                    ניתוח גאפ אדיאבטי
+                  </div>
+                  <button
+                    onClick={runGapAnalysis}
+                    disabled={gapLoading}
+                    style={{
+                      padding: "5px 10px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: palette.queraPurple,
+                      color: "#fff",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: gapLoading ? "wait" : "pointer",
+                    }}
+                  >
+                    {gapLoading ? "מחשב…" : "↻ חשב δ_min"}
+                  </button>
+                </div>
+                {gap && (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 8,
+                      fontSize: 11.5,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    <Stat
+                      label="δ_min"
+                      value={`${gap.min_gap.toFixed(2)} rad/µs`}
+                      color={gap.min_gap < 1 ? palette.warn : palette.ok}
+                    />
+                    <Stat
+                      label="t @ δ_min"
+                      value={`${gap.t_at_min_gap.toFixed(2)} µs`}
+                    />
+                    <Stat
+                      label="T מומלץ"
+                      value={
+                        gap.suggested_t_us == null
+                          ? "—"
+                          : `${gap.suggested_t_us.toFixed(2)} µs`
+                      }
+                      color={
+                        gap.suggested_t_us != null && gap.suggested_t_us > schedule.schedule.duration
+                          ? palette.warn
+                          : palette.queraPurpleGlow
+                      }
+                    />
+                    <Stat
+                      label="T נוכחי"
+                      value={`${schedule.schedule.duration.toFixed(2)} µs`}
+                    />
+                    {gap.suggested_t_us != null && gap.suggested_t_us > schedule.schedule.duration && (
+                      <div
+                        style={{
+                          gridColumn: "1 / -1",
+                          color: palette.warn,
+                          fontSize: 11,
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        ⚠ T הנוכחי קצר מהמומלץ — צפי לסטייה אדיאבטית.
+                      </div>
+                    )}
+                  </div>
+                )}
+                {gapAtomsTooMany && (
+                  <div style={{ fontSize: 11, color: palette.textMuted }}>
+                    הגרף גדול מ-{gapAtomsTooMany.max} אטומים ({gapAtomsTooMany.n}) — diagonalisation
+                    מלאה איטית מדי לחישוב מיידי.
+                  </div>
+                )}
+                {!gap && !gapAtomsTooMany && (
+                  <div style={{ fontSize: 11, color: palette.textMuted }}>
+                    לחץ כדי למצוא את הפער המינימלי E_1−E_0 לאורך הפולס. ה-T המומלץ ≈ 1/δ_min².
+                  </div>
+                )}
               </div>
             )}
           </div>

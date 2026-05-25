@@ -172,11 +172,42 @@ function Header() {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <ExamplesButton />
+        <ResetPipelineButton />
         <div style={{ fontSize: 12, color: palette.textSecondary }} dir="ltr">
           v0.1.0 · Bloqade + QuTiP
         </div>
       </div>
     </header>
+  );
+}
+
+function ResetPipelineButton() {
+  return (
+    <button
+      onClick={() => {
+        if (!window.confirm("לאפס את כל הצינור (גרף + תוצאות)?")) return;
+        // Wipe the persisted store and reload fresh.
+        try {
+          window.localStorage.removeItem("qsim.pipeline.v1");
+        } catch {
+          /* private mode etc — nothing to clear */
+        }
+        window.location.reload();
+      }}
+      title="מוחק את הגרף הפעיל ואת כל התוצאות בכל השלבים (לא נוגע ב'הגרפים שלי')"
+      style={{
+        padding: "6px 12px",
+        borderRadius: 6,
+        border: `1px solid ${palette.queraPurpleSoft}`,
+        background: "transparent",
+        color: palette.textSecondary,
+        fontSize: 11.5,
+        fontWeight: 600,
+        cursor: "pointer",
+      }}
+    >
+      ♻ אפס צינור
+    </button>
   );
 }
 

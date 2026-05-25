@@ -45,6 +45,16 @@ RABI_SLEW_RATE: Final[float] = 250.0
 DETUNING_MAX_RAD_US: Final[float] = 125.0
 """Maximum |Delta(t)|."""
 
+DETUNING_SLEW_RATE: Final[float] = 2500.0
+"""
+Maximum |dDelta/dt| in rad/us^2 (AOM bandwidth on the global detuning line).
+Sourced from Amazon Braket's published Aquila device capabilities; the
+whitepaper itself does not pin this down explicitly. Detuning has a much
+faster modulator than Rabi, so this limit is ten times looser than
+``RABI_SLEW_RATE`` — a piecewise-linear Δ sweep that respects the duration
+budget will almost never hit it.
+"""
+
 MAX_DURATION_US: Final[float] = 4.0
 """Maximum total evolution time (coherent timescale on Aquila baseline)."""
 
@@ -52,10 +62,15 @@ MAX_DURATION_US: Final[float] = 4.0
 # Rydberg interaction
 # =============================================================================
 
-C6_RAD_US_UM6: Final[float] = 862690.0
+C6_RAD_US_UM6: Final[float] = 5_420_503.0
 """
 C6 coefficient for the 70S_{1/2} Rydberg state of Rb-87, in (rad/us) * um^6.
-This is the value used by Bloqade by default (see bloqade.analog.constants).
+
+This is 2π × 862,690 MHz·µm⁶ — the conversion is mandatory because Omega and
+Delta in this module are in rad/us (whitepaper Eq. 1). Bloqade's default is
+the same value (see bloqade.analog.constants).  A spec PDF or any source that
+quotes "C6 ≈ 862,000 MHz·µm⁶" refers to the *MHz* version of the same number;
+do not pass it as-is to the Hamiltonian without the 2π factor.
 """
 
 
@@ -165,6 +180,7 @@ class AquilaSpec:
     max_rabi_rad_us: float = MAX_RABI_RAD_US
     rabi_slew_rate: float = RABI_SLEW_RATE
     detuning_max_rad_us: float = DETUNING_MAX_RAD_US
+    detuning_slew_rate: float = DETUNING_SLEW_RATE
     max_duration_us: float = MAX_DURATION_US
     c6_rad_us_um6: float = C6_RAD_US_UM6
     noise: NoiseModel = AQUILA_NOISE

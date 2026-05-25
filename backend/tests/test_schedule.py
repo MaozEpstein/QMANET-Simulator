@@ -19,10 +19,12 @@ from aquila.constants import AQUILA
 from aquila.validator import ViolationCode
 from pipeline.schedule import (
     PiecewiseLinear,
+    PRESETS,
     Schedule,
     bernien_2017_sweep,
     from_breakpoints,
     paper_linear_ramp,
+    paper_smooth_blackman,
     validate_schedule,
 )
 
@@ -125,6 +127,32 @@ def test_bernien_2017_sweep_obeys_aquila():
     assert v == [], [x.code for x in v]
 
 
+def test_paper_smooth_blackman_obeys_aquila():
+    s = paper_smooth_blackman()
+    v = validate_schedule(s)
+    assert v == [], [x.code for x in v]
+
+
+def test_paper_smooth_blackman_zero_at_boundaries():
+    """Blackman envelope must drive Ω cleanly to 0 at both endpoints."""
+    s = paper_smooth_blackman()
+    assert s.omega.value_at(0.0) == pytest.approx(0.0, abs=1e-9)
+    assert s.omega.value_at(s.duration) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_paper_smooth_blackman_peak_matches_omega_max():
+    """The window peak ≈ 1.0 → Ω peak ≈ omega_max."""
+    s = paper_smooth_blackman(omega_max_rad_us=12.0)
+    peak = max(s.omega.values)
+    # Blackman peak value is exactly 1 at t = T/2.
+    assert peak == pytest.approx(12.0, rel=1e-3)
+
+
+def test_preset_registry_includes_blackman():
+    """The /api/schedule/presets endpoint should expose the new preset."""
+    assert "paper_smooth_blackman" in PRESETS
+
+
 def test_paper_linear_ramp_rejects_invalid_fraction():
     with pytest.raises(ValueError):
         paper_linear_ramp(ramp_up_fraction=0.6)
@@ -203,6 +231,36 @@ def test_slew_rate_at_250_boundary_is_valid():
     # Filter — slew test only; Ω will be flagged separately
     v = [x for x in validate_schedule(s) if x.code == ViolationCode.SLEW_RATE_EXCEEDED]
     assert v == []
+
+
+def test_detuning_slew_rate_exceeded_fails():
+    """Ramp Δ from 0 to 125 in 0.001 µs → slew = 125,000 >> 2500."""
+    s = from_breakpoints(
+        omega_breakpoints=[(0.0, 0.0), (1.0, 0.0)],
+        delta_breakpoints=[(0.0, 0.0), (0.001, 125.0), (1.0, 125.0)],
+    )
+    v = validate_schedule(s)
+    assert any(x.code == ViolationCode.DETUNING_SLEW_RATE_EXCEEDED for x in v)
+
+
+def test_detuning_slew_rate_at_2500_boundary_is_valid():
+    """Δ slew of exactly 2500 rad/µs² should not be flagged."""
+    s = from_breakpoints(
+        omega_breakpoints=[(0.0, 0.0), (1.0, 0.0)],
+        delta_breakpoints=[(0.0, 0.0), (1.0, 2500.0)],  # may violate Δ_max but isolate slew test
+    )
+    v = [x for x in validate_schedule(s) if x.code == ViolationCode.DETUNING_SLEW_RATE_EXCEEDED]
+    assert v == []
+
+
+def test_detuning_slew_negative_direction_also_flagged():
+    """A steep *downward* Δ sweep must trigger the same code."""
+    s = from_breakpoints(
+        omega_breakpoints=[(0.0, 0.0), (1.0, 0.0)],
+        delta_breakpoints=[(0.0, 100.0), (0.001, -100.0), (1.0, -100.0)],
+    )
+    v = validate_schedule(s)
+    assert any(x.code == ViolationCode.DETUNING_SLEW_RATE_EXCEEDED for x in v)
 
 
 def test_duration_above_4us_fails():

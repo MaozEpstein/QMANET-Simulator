@@ -5,8 +5,12 @@ adiabatic quantum approach against (Ebadi 2022 §4 baseline).
 Energy function:
     E(S) = -|S| + penalty * (# of in-S edges)
 
-Penalty ≥ 1.5 guarantees that any IS dominates any non-IS in energy, so the
-ground state of E is the maximum independent set.
+Lucas 2014 §2.3 requires ``penalty ≥ max_graph_degree`` to *guarantee* that
+the ground state of E is the maximum independent set: any single
+edge-violation must cost more than the largest possible size gain.  When the
+caller does not pass an explicit penalty, we therefore default to
+``max(2.0, max_degree)`` rather than a fixed 2.0 (which is too weak for
+graphs with degree > 2).
 
 The annealing schedule is geometric: T_k = T_0 * cooling^k. At each step we
 flip one random vertex's membership in S and accept by Metropolis. Final
@@ -21,7 +25,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .clique_to_mis import Graph
+from .clique_to_mis import Graph, compute_target_mis_size
 from .postprocess import _adjacency_sets, count_violations, greedy_remove_violations
 
 
@@ -32,8 +36,13 @@ class SAConfig:
 
     t_initial: float = 2.0
     t_final: float = 0.01
-    penalty: float = 2.0
-    """Multiplier on # violating edges in the energy. >1 guarantees IS optimum."""
+    penalty: float | None = None
+    """Multiplier on # violating edges in the energy.
+
+    ``None`` means *auto*: pick ``max(2.0, max_graph_degree)`` so the
+    ground-state-equals-MIS guarantee from Lucas 2014 §2.3 holds for any
+    input. Pass an explicit float (≥1.0) to override (e.g. to reproduce
+    historical runs that hard-coded 2.0)."""
 
     seed: int | None = 0
 
@@ -46,6 +55,16 @@ class SAResult:
     n_iterations: int
     energy_trace: tuple[float, ...]
     """One sample per sweep — for the UI to plot annealing progress."""
+
+    penalty_used: float = 0.0
+    """The actual penalty multiplier used (after auto-resolution from max degree)."""
+
+    target_mis_size: int | None = None
+    """Exact |MIS*| for graphs ≤ EXACT_MIS_MAX_NODES, else None."""
+
+    r_ratio: float | None = None
+    """Approximation ratio R = best_size / |MIS*| (Ebadi 2022 metric).
+    None when the target MIS isn't known (graph too large for exact solve)."""
 
     @property
     def bitstring(self) -> str:
@@ -61,6 +80,9 @@ class SAResult:
             "best_energy": self.best_energy,
             "n_iterations": self.n_iterations,
             "energy_trace": list(self.energy_trace),
+            "penalty_used": self.penalty_used,
+            "target_mis_size": self.target_mis_size,
+            "r_ratio": self.r_ratio,
         }
 
 
@@ -72,18 +94,26 @@ def simulated_annealing(graph: Graph, config: SAConfig | None = None) -> SAResul
     """Run SA and return the best IS found."""
     cfg = config or SAConfig()
     n = graph.n_nodes
+    adj = _adjacency_sets(graph)
+    max_degree = max((len(neigh) for neigh in adj), default=0)
+    penalty = cfg.penalty if cfg.penalty is not None else max(2.0, float(max_degree))
+    target_size = compute_target_mis_size(graph)
+
     if n == 0:
+        r_ratio = 1.0 if target_size == 0 else None
         return SAResult(
             best_set=(),
             best_size=0,
             best_energy=0.0,
             n_iterations=0,
             energy_trace=(),
+            penalty_used=penalty,
+            target_mis_size=target_size,
+            r_ratio=r_ratio,
         )
     rng = np.random.default_rng(cfg.seed)
-    adj = _adjacency_sets(graph)
     S: set[int] = set()
-    E = _energy(S, adj, cfg.penalty)
+    E = _energy(S, adj, penalty)
 
     best_set = set(S)
     best_E = E
@@ -107,7 +137,7 @@ def simulated_annealing(graph: Graph, config: SAConfig | None = None) -> SAResul
         else:
             delta_size = 1
             delta_viol = sum(1 for u in adj[v] if u in S)
-        dE = -delta_size + cfg.penalty * delta_viol
+        dE = -delta_size + penalty * delta_viol
 
         if dE <= 0 or rng.random() < math.exp(-dE / max(T, 1e-12)):
             if v in S:
@@ -126,11 +156,21 @@ def simulated_annealing(graph: Graph, config: SAConfig | None = None) -> SAResul
 
     # Project to a valid IS
     best_clean, _ = greedy_remove_violations(best_set, adj)
-    final_E = _energy(best_clean, adj, cfg.penalty)
+    final_E = _energy(best_clean, adj, penalty)
+    r_ratio: float | None
+    if target_size is None:
+        r_ratio = None
+    elif target_size == 0:
+        r_ratio = 1.0 if len(best_clean) == 0 else 0.0
+    else:
+        r_ratio = len(best_clean) / target_size
     return SAResult(
         best_set=tuple(sorted(best_clean)),
         best_size=len(best_clean),
         best_energy=final_E,
         n_iterations=total_iters,
         energy_trace=tuple(trace),
+        penalty_used=penalty,
+        target_mis_size=target_size,
+        r_ratio=r_ratio,
     )

@@ -160,6 +160,15 @@ export function Stage7_PostProcess() {
           </div>
         </Panel>
       )}
+      {batch && (
+        <Panel
+          title="Approximation Ratio · השוואת קוונטי ↔ קלאסי"
+          subtitle="R = ⟨|IS|⟩ / |MIS*|  — המטריקה הקנונית של Ebadi 2022 (Fig. 5). 1.0 = פתרון אופטימלי."
+        >
+          <ApproximationRatioPanel batch={batch} sa={sa} />
+        </Panel>
+      )}
+
       <Panel
         title="שלב 7 · Post-processing — greedy fix → extension"
         subtitle="כל shot עובר את אלגוריתם §6 של whitepaper: מסירים violations, מרחיבים ל-mIS"
@@ -361,6 +370,166 @@ export function Stage7_PostProcess() {
         </p>
       </Panel>
     </motion.div>
+  );
+}
+
+function ratioBorderColor(r: number | null): string {
+  if (r == null) return palette.queraPurpleSoft;
+  if (r >= 0.95) return palette.ok;
+  if (r >= 0.8) return palette.warn;
+  return palette.err;
+}
+
+function ApproximationRatioPanel({
+  batch,
+  sa,
+}: {
+  batch: PostProcessBatchResponse;
+  sa: SAResponse | null;
+}) {
+  const target = batch.summary.target_mis_size ?? null;
+  const targetUnknown = target == null;
+  const qBest = batch.summary.best_r_ratio ?? null;
+  const qMean = batch.summary.mean_r_ratio ?? null;
+  const saR = sa?.r_ratio ?? null;
+
+  const pct = (r: number | null) => (r == null ? "?" : `${(r * 100).toFixed(1)}%`);
+  const summary = targetUnknown
+    ? "הגרף גדול מ-28 קודקודים — לא ניתן לחשב את ה-MIS האקזקטי, ולכן R לא זמין."
+    : `הקוונטי השיג ${pct(qBest)} מהאופטימום (best), ממוצע ${pct(qMean)} על פני ${batch.summary.n_shots} shots; ה-SA הקלסי השיג ${pct(saR)}.`;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 14,
+        }}
+      >
+        <RatioCard
+          label="Quantum · best R"
+          ratio={qBest}
+          sub={`best size = ${batch.summary.best_final_size}`}
+          numberColor={palette.queraPurpleGlow}
+        />
+        <RatioCard
+          label="Quantum · mean R"
+          ratio={qMean}
+          sub={`⟨size⟩ = ${batch.summary.mean_final_size.toFixed(2)} · ${batch.summary.n_shots} shots`}
+          numberColor={palette.atomGround}
+        />
+        <RatioCard
+          label="Classical SA · R"
+          ratio={saR}
+          sub={
+            sa
+              ? `size = ${sa.best_size}${
+                  sa.penalty_used ? ` · penalty = ${sa.penalty_used.toFixed(1)}` : ""
+                }`
+              : "—"
+          }
+          numberColor={palette.warn}
+        />
+        <TargetCard targetMis={target} />
+      </div>
+      <div
+        style={{
+          padding: "10px 14px",
+          background: palette.bgInset,
+          border: `1px solid ${palette.queraPurpleSoft}`,
+          borderRadius: 8,
+          fontSize: 12.5,
+          color: palette.textSecondary,
+          lineHeight: 1.6,
+        }}
+      >
+        {summary}
+      </div>
+    </div>
+  );
+}
+
+function RatioCard({
+  label,
+  ratio,
+  sub,
+  numberColor,
+}: {
+  label: string;
+  ratio: number | null;
+  sub: string;
+  numberColor: string;
+}) {
+  const display = ratio == null ? "—" : ratio.toFixed(3);
+  const border = ratioBorderColor(ratio);
+  return (
+    <div
+      style={{
+        background: palette.bgInset,
+        border: `1px solid ${border}`,
+        borderRadius: 10,
+        padding: "14px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        boxShadow: ratio != null && ratio >= 0.95 ? `0 0 18px ${palette.ok}33` : undefined,
+      }}
+    >
+      <div style={{ fontSize: 11.5, color: palette.textSecondary, letterSpacing: 0.4 }}>
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          color: numberColor,
+          fontSize: 32,
+          lineHeight: 1.1,
+          fontWeight: 700,
+        }}
+        dir="ltr"
+      >
+        {display}
+      </div>
+      <div style={{ fontSize: 11, color: palette.textMuted }} dir="ltr">
+        {sub}
+      </div>
+    </div>
+  );
+}
+
+function TargetCard({ targetMis }: { targetMis: number | null }) {
+  return (
+    <div
+      style={{
+        background: palette.bgInset,
+        border: `1px dashed ${palette.queraPurpleSoft}`,
+        borderRadius: 10,
+        padding: "14px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div style={{ fontSize: 11.5, color: palette.textSecondary, letterSpacing: 0.4 }}>
+        Target · |MIS*|
+      </div>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          color: palette.textPrimary,
+          fontSize: 32,
+          lineHeight: 1.1,
+          fontWeight: 700,
+        }}
+        dir="ltr"
+      >
+        {targetMis == null ? "—" : targetMis}
+      </div>
+      <div style={{ fontSize: 11, color: palette.textMuted }} dir="ltr">
+        {targetMis == null ? "graph too large for exact MIS" : "exact (networkx Bron–Kerbosch)"}
+      </div>
+    </div>
   );
 }
 

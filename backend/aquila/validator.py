@@ -38,6 +38,7 @@ class ViolationCode(str, Enum):
     RABI_NEGATIVE = "rabi_negative"
     SLEW_RATE_EXCEEDED = "slew_rate_exceeded"
     DETUNING_OUT_OF_RANGE = "detuning_out_of_range"
+    DETUNING_SLEW_RATE_EXCEEDED = "detuning_slew_rate_exceeded"
     DURATION_EXCEEDED = "duration_exceeded"
 
 

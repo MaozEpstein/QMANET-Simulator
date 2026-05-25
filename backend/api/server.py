@@ -32,6 +32,7 @@ from api.models import (
     CostEstimateDTO,
     EmbedRequest,
     EmbedResponse,
+    GapTraceDTO,
     GraphDTO,
     MANETRequest,
     MANETResponse,
@@ -51,6 +52,8 @@ from api.models import (
     SARequest,
     SAResponse,
     ScheduleDTO,
+    ScheduleGapRequest,
+    ScheduleGapResponse,
     ScheduleRequest,
     ScheduleResponse,
     SimulateRequest,
@@ -60,6 +63,7 @@ from api.models import (
 )
 from pipeline import clique_to_mis as cqm
 from pipeline import manet as manet_mod
+from pipeline.adiabatic_gap import GAP_MAX_ATOMS, compute_min_gap
 from pipeline.classical_sa import SAConfig, simulated_annealing
 from pipeline.embedding import EmbedConfig, embed as embed_atoms
 from pipeline.measurement import measure
@@ -273,6 +277,27 @@ def build_schedule(req: ScheduleRequest) -> ScheduleResponse:
     )
 
 
+@app.post("/api/schedule/gap", response_model=ScheduleGapResponse)
+def schedule_gap(req: ScheduleGapRequest) -> ScheduleGapResponse:
+    """
+    Compute the instantaneous spectral gap E_1(t) − E_0(t) along the schedule.
+
+    Used by Stage 4 to warn the user when T is too short for the chosen graph
+    (adiabatic theorem requires T ≳ 1 / δ_min²). For large systems (>10 atoms)
+    we refuse explicitly so the UI can display a friendlier message instead of
+    spinning a CPU.
+    """
+    positions = [(p.x, p.y) for p in req.positions]
+    n = len(positions)
+    schedule = _schedule_from_dto(req.schedule)
+    trace = compute_min_gap(positions, schedule, n_samples=req.n_samples)
+    return ScheduleGapResponse(
+        trace=GapTraceDTO(**trace.to_dict()) if trace is not None else None,
+        n_atoms=n,
+        max_atoms=GAP_MAX_ATOMS,
+    )
+
+
 # =============================================================================
 # Phase 4 — Adiabatic evolution
 # =============================================================================
@@ -377,9 +402,19 @@ def postprocess_batch(req: PostProcessBatchRequest) -> PostProcessBatchResponse:
                 detail=f"bitstring length {len(b)} != n_nodes {g.n_nodes}",
             )
     results = postprocess_many(req.bitstrings, g, seed=req.seed)
+    summary = summarize_postprocess(results, graph=g)
+    target_size = summary["target_mis_size"]
+
+    def _result_dto(r) -> PostProcessResultDTO:
+        d = r.to_dict()
+        d["r_ratio"] = (
+            None if target_size is None or target_size == 0 else r.final_size / target_size
+        )
+        return PostProcessResultDTO(**d)
+
     return PostProcessBatchResponse(
-        results=[PostProcessResultDTO(**r.to_dict()) for r in results],
-        summary=summarize_postprocess(results),
+        results=[_result_dto(r) for r in results],
+        summary=summary,
     )
 
 

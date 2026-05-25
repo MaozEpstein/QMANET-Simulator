@@ -136,6 +136,41 @@ export function buildQ3Example(): MANETResponse {
   };
 }
 
+/**
+ * Triangular Prism — K₃ □ K₂, laid out as a Star of David on a hexagonal ring.
+ *
+ * 6 vertices on a regular hexagon. The 9 edges form two interlocking triangles
+ * ({0,2,4} and {1,3,5}) plus 3 diameters connecting diametrically opposite
+ * vertices. 3-regular, prism-graph topology.
+ *
+ *   α(G) = 2, MaxClique(G) = 3 — the first preset where MaxClique > 2, so
+ *   Stage 2 finally shows a non-trivial clique result.
+ *
+ *   Complement Ḡ = C₆ — the same 6 hexagon vertices, connected as a clean
+ *   6-cycle around the rim. Visually striking: "Star of David ⇌ hexagon ring."
+ */
+export function buildTriangularPrismExample(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const r = 35;
+  const positions = Array.from({ length: 6 }, (_, i) => {
+    const theta = -Math.PI / 2 + (i * Math.PI) / 3; // start at top, CW
+    return { id: i, x: cx + r * Math.cos(theta), y: cy + r * Math.sin(theta) };
+  });
+  const edges: [number, number][] = [
+    // Top triangle (even-indexed vertices)
+    [0, 2], [2, 4], [0, 4],
+    // Bottom triangle (odd-indexed vertices)
+    [1, 3], [3, 5], [1, 5],
+    // Three diameters connecting diametrically opposite vertices
+    [0, 3], [2, 5], [1, 4],
+  ];
+  return {
+    graph: { n_nodes: 6, edges, node_positions: positions },
+    config: { n_nodes: 6, box_size: 200, comm_radius: 70, seed: null },
+  };
+}
+
 export function buildPetersenExample(): MANETResponse {
   const cx = 100;
   const cy = 50;

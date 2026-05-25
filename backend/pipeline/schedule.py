@@ -166,6 +166,22 @@ def validate_schedule(
             )
         )
 
+    # Slew rate (applies to Δ; AOM bandwidth on the detuning line)
+    delta_slew = schedule.delta.max_slew_rate()
+    if delta_slew > spec.detuning_slew_rate:
+        out.append(
+            Violation(
+                code=ViolationCode.DETUNING_SLEW_RATE_EXCEEDED,
+                message=(
+                    f"|dΔ/dt|={delta_slew:.3f} rad/µs² exceeds {spec.detuning_slew_rate} "
+                    f"(the detuning AOM can't keep up)"
+                ),
+                locus={"channel": "Delta"},
+                measured=delta_slew if math.isfinite(delta_slew) else 1e12,
+                limit=spec.detuning_slew_rate,
+            )
+        )
+
     # Duration
     if schedule.duration > spec.max_duration_us:
         out.append(
@@ -244,6 +260,44 @@ def bernien_2017_sweep(
     return Schedule(omega=omega, delta=delta, phi=phi)
 
 
+def paper_smooth_blackman(
+    t_total_us: float = 4.0,
+    omega_max_rad_us: float = 15.0,
+    delta_initial_rad_us: float = -30.0,
+    delta_final_rad_us: float = 40.0,
+    n_samples: int = 31,
+) -> Schedule:
+    """
+    Smooth schedule favoured by Aquila's best-practice guide and Ebadi 2022:
+      Ω(t) = Ω_max · w(t/T) where w is the Blackman window
+                            w(x) = 0.42 − 0.5·cos(2πx) + 0.08·cos(4πx),  x ∈ [0,1]
+      Δ(t): linear Δ_i → Δ_f
+      φ(t): constant 0
+
+    The Blackman envelope guarantees Ω(0) = Ω(T) = 0 with zero derivative at
+    the boundaries, eliminating the trapezoidal "corner" discontinuities of
+    :func:`paper_linear_ramp` that the Aquila whitepaper §1.2 warns against
+    ("rapidly varying functions … unexpected behavior" through the AOM
+    bandwidth). We approximate the analytic envelope with ``n_samples``
+    piecewise-linear breakpoints — 30 is plenty for the 4 µs default.
+    """
+    if n_samples < 4:
+        raise ValueError("n_samples must be ≥ 4 to resolve a Blackman envelope")
+    times = [i * t_total_us / (n_samples - 1) for i in range(n_samples)]
+    omega_values: list[float] = []
+    for t in times:
+        x = t / t_total_us
+        w = 0.42 - 0.5 * math.cos(2 * math.pi * x) + 0.08 * math.cos(4 * math.pi * x)
+        # Numerical clamp — the formula can dip ~5e-17 below 0 at the endpoints.
+        omega_values.append(max(0.0, omega_max_rad_us * w))
+    omega = PiecewiseLinear.from_lists(times, omega_values)
+    delta = PiecewiseLinear.from_lists(
+        [0.0, t_total_us], [delta_initial_rad_us, delta_final_rad_us]
+    )
+    phi = PiecewiseLinear.from_lists([0.0, t_total_us], [0.0, 0.0])
+    return Schedule(omega=omega, delta=delta, phi=phi)
+
+
 def from_breakpoints(
     omega_breakpoints: list[tuple[float, float]],
     delta_breakpoints: list[tuple[float, float]],
@@ -274,4 +328,5 @@ def from_breakpoints(
 PRESETS = {
     "paper_linear_ramp": paper_linear_ramp,
     "bernien_2017_sweep": bernien_2017_sweep,
+    "paper_smooth_blackman": paper_smooth_blackman,
 }

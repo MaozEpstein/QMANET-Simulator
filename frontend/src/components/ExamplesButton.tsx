@@ -18,6 +18,7 @@ import {
   buildK33Example,
   buildPetersenExample,
   buildQ3Example,
+  buildTriangularPrismExample,
 } from "../lib/examples";
 import {
   deleteSaved,
@@ -103,6 +104,16 @@ const EXAMPLES: Example[] = [
     n: 6,
     category: "starter",
     build: buildK33Example,
+  },
+  {
+    id: "tri-prism",
+    name: "פריזמה משולשית (מגן דוד)",
+    englishName: "Triangular prism · K₃ □ K₂",
+    description:
+      "6 קודקודים על משושה. הקשתות יוצרות מגן דוד: שני משולשים שזורים + 3 קוטרים. המשלים = מחזור הקסגוני C₆. α(G)=2, MaxClique=3 — הראשון ברשימה עם קליק לא טריוויאלי.",
+    n: 6,
+    category: "topology",
+    build: buildTriangularPrismExample,
   },
   {
     id: "q3",

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 import type {
   EmbedResponse,
   MANETResponse,
@@ -61,51 +62,76 @@ const EMPTY_SIM: SimulationState = {
   currentFrameIndex: 0,
 };
 
-export const usePipeline = create<PipelineState>((set) => ({
-  currentStage: "manet",
-  setStage: (s) => set({ currentStage: s }),
-  manet: null,
-  setManet: (m) => set({ manet: m }),
-  mis: null,
-  setMIS: (m) => set({ mis: m }),
-  embed: null,
-  setEmbed: (e) => set({ embed: e }),
-  schedule: null,
-  setSchedule: (s) => set({ schedule: s }),
-  simulation: { ...EMPTY_SIM },
-  resetSimulation: () => set({ simulation: { ...EMPTY_SIM } }),
-  pushSimulationFrame: (f) =>
-    set((state) => ({
-      simulation: {
-        ...state.simulation,
-        frames: [...state.simulation.frames, f],
-        currentFrameIndex: state.simulation.frames.length, // points at the new frame
-      },
-    })),
-  setSimulationFrames: (frames) =>
-    set((state) => ({
-      simulation: {
-        ...state.simulation,
-        frames,
-        currentFrameIndex: Math.max(0, frames.length - 1),
-      },
-    })),
-  setSimulationStatus: (status, msg) =>
-    set((state) => ({
-      simulation: { ...state.simulation, status, errorMessage: msg },
-    })),
-  setCurrentFrameIndex: (i) =>
-    set((state) => ({
-      simulation: {
-        ...state.simulation,
-        currentFrameIndex: Math.max(
-          0,
-          Math.min(i, state.simulation.frames.length - 1),
-        ),
-      },
-    })),
-  setFinalBitstringProbs: (probs) =>
-    set((state) => ({
-      simulation: { ...state.simulation, finalBitstringProbs: probs },
-    })),
-}));
+export const usePipeline = create<PipelineState>()(
+  persist(
+    (set) => ({
+      currentStage: "manet",
+      setStage: (s) => set({ currentStage: s }),
+      manet: null,
+      setManet: (m) => set({ manet: m }),
+      mis: null,
+      setMIS: (m) => set({ mis: m }),
+      embed: null,
+      setEmbed: (e) => set({ embed: e }),
+      schedule: null,
+      setSchedule: (s) => set({ schedule: s }),
+      simulation: { ...EMPTY_SIM },
+      resetSimulation: () => set({ simulation: { ...EMPTY_SIM } }),
+      pushSimulationFrame: (f) =>
+        set((state) => ({
+          simulation: {
+            ...state.simulation,
+            frames: [...state.simulation.frames, f],
+            currentFrameIndex: state.simulation.frames.length, // points at the new frame
+          },
+        })),
+      setSimulationFrames: (frames) =>
+        set((state) => ({
+          simulation: {
+            ...state.simulation,
+            frames,
+            currentFrameIndex: Math.max(0, frames.length - 1),
+          },
+        })),
+      setSimulationStatus: (status, msg) =>
+        set((state) => ({
+          simulation: { ...state.simulation, status, errorMessage: msg },
+        })),
+      setCurrentFrameIndex: (i) =>
+        set((state) => ({
+          simulation: {
+            ...state.simulation,
+            currentFrameIndex: Math.max(
+              0,
+              Math.min(i, state.simulation.frames.length - 1),
+            ),
+          },
+        })),
+      setFinalBitstringProbs: (probs) =>
+        set((state) => ({
+          simulation: { ...state.simulation, finalBitstringProbs: probs },
+        })),
+    }),
+    {
+      name: "qsim.pipeline.v1",
+      storage: createJSONStorage(() => localStorage),
+      version: 1,
+      // Persist the pipeline structure but NEVER the heavy frame array — a
+      // 30-atom × 120-frame run is ~5 MB. On rehydrate we ship Stage 5 back
+      // to "idle" so the UI doesn't show a stale "running" banner.
+      partialize: (state) => ({
+        currentStage: state.currentStage,
+        manet: state.manet,
+        mis: state.mis,
+        embed: state.embed,
+        schedule: state.schedule,
+        simulation: {
+          frames: [],
+          status: "idle" as const,
+          currentFrameIndex: 0,
+          finalBitstringProbs: state.simulation.finalBitstringProbs,
+        },
+      }),
+    },
+  ),
+);

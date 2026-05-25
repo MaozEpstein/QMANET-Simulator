@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .clique_to_mis import Graph
+from .clique_to_mis import Graph, compute_target_mis_size
 
 
 def _adjacency_sets(graph: Graph) -> list[set[int]]:
@@ -185,8 +185,16 @@ def postprocess_many(
 
 def summarize_postprocess(
     results: list[PostProcessResult],
+    graph: Graph | None = None,
 ) -> dict:
-    """Aggregate stats across many shots."""
+    """Aggregate stats across many shots.
+
+    When ``graph`` is provided and small enough (≤ EXACT_MIS_MAX_NODES), the
+    summary also includes ``target_mis_size`` and ``mean_r_ratio`` /
+    ``best_r_ratio`` — Ebadi 2022's approximation ratio metric — so the UI
+    can compare the quantum result head-to-head with the classical SA and
+    with the true optimum.
+    """
     if not results:
         return {
             "n_shots": 0,
@@ -194,14 +202,27 @@ def summarize_postprocess(
             "mean_fixed_size": 0.0,
             "mean_final_size": 0.0,
             "best_final_size": 0,
+            "target_mis_size": None,
+            "mean_r_ratio": None,
+            "best_r_ratio": None,
         }
     raw_sizes = np.array([r.raw_size for r in results])
     fixed_sizes = np.array([r.after_fix_size for r in results])
     final_sizes = np.array([r.final_size for r in results])
+    target_size = compute_target_mis_size(graph) if graph is not None else None
+    if target_size is None or target_size == 0:
+        mean_r = None
+        best_r = None
+    else:
+        mean_r = float(final_sizes.mean()) / target_size
+        best_r = float(final_sizes.max()) / target_size
     return {
         "n_shots": len(results),
         "mean_raw_size": float(raw_sizes.mean()),
         "mean_fixed_size": float(fixed_sizes.mean()),
         "mean_final_size": float(final_sizes.mean()),
         "best_final_size": int(final_sizes.max()),
+        "target_mis_size": target_size,
+        "mean_r_ratio": mean_r,
+        "best_r_ratio": best_r,
     }

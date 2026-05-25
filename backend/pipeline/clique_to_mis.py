@@ -71,6 +71,22 @@ def max_independent_set(g: Graph) -> list[int]:
     return sorted(int(v) for v in clique)
 
 
+def compute_target_mis_size(g: Graph) -> int | None:
+    """
+    Return |MIS(G)| exactly when feasible, else None.
+
+    Wraps :func:`max_independent_set` and *suppresses* the ValueError raised
+    above ``EXACT_MIS_MAX_NODES`` — callers (post-process, SA) use the result
+    to compute Ebadi's approximation ratio R, and a missing value should leave
+    R undefined rather than crash the response.
+    """
+    if g.n_nodes > EXACT_MIS_MAX_NODES:
+        return None
+    if g.n_nodes == 0:
+        return 0
+    return len(max_independent_set(g))
+
+
 def max_clique(g: Graph) -> list[int]:
     """Return one maximum clique of G — symmetric helper to max_independent_set."""
     if g.n_nodes > EXACT_MIS_MAX_NODES:

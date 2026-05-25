@@ -39,8 +39,14 @@ from .clique_to_mis import Graph
 
 @dataclass
 class EmbedConfig:
-    lattice_spacing_um: float = 5.0
-    """Logical lattice step. Ebadi2022 used 5 µm; default mirrors §6.1."""
+    lattice_spacing_um: float = 6.5
+    """Logical lattice step in µm.
+
+    Picked so that the diagonal distance a√2 ≈ 9.19 µm sits *outside* the
+    blockade radius R_b ≈ 8.79 µm (at the default Ω=15 rad/µs and the canonical
+    C₆ = 5,420,503 rad/µs·µm⁶). With a smaller spacing such as Ebadi's 5 µm,
+    diagonal neighbours fall *inside* R_b → spurious blockade edges that the
+    UDG encoding cannot honour. Bump the spacing here if you raise Ω."""
 
     rabi_rad_us: float = 15.0
     """Rabi amplitude used to *compute the blockade radius for embedding*. Whitepaper §6.1 uses 15 rad/µs."""

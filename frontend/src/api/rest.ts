@@ -133,6 +133,27 @@ export interface ScheduleResponse {
   max_omega_slew_rate: number;
 }
 
+export interface ScheduleGapRequest {
+  positions: NodePos[];
+  schedule: ScheduleDTO;
+  n_samples?: number;
+}
+
+export interface GapTraceDTO {
+  times: number[];
+  gaps: number[];
+  min_gap: number;
+  t_at_min_gap: number;
+  suggested_t_us: number | null;
+  n_atoms: number;
+}
+
+export interface ScheduleGapResponse {
+  trace: GapTraceDTO | null;
+  n_atoms: number;
+  max_atoms: number;
+}
+
 // --------------------------------------------------------------------------- //
 // Phase 4 — Simulation
 // --------------------------------------------------------------------------- //
@@ -185,6 +206,7 @@ export interface PostProcessResultDTO {
   final_size: number;
   added: number[];
   is_valid: boolean;
+  r_ratio?: number | null;
 }
 
 export interface PostProcessBatchResponse {
@@ -195,6 +217,9 @@ export interface PostProcessBatchResponse {
     mean_fixed_size: number;
     mean_final_size: number;
     best_final_size: number;
+    target_mis_size?: number | null;
+    mean_r_ratio?: number | null;
+    best_r_ratio?: number | null;
   };
 }
 
@@ -202,7 +227,7 @@ export interface SAConfigDTO {
   n_sweeps: number;
   t_initial: number;
   t_final: number;
-  penalty: number;
+  penalty?: number | null;
   seed?: number | null;
 }
 
@@ -212,6 +237,9 @@ export interface SAResponse {
   best_energy: number;
   n_iterations: number;
   energy_trace: number[];
+  penalty_used?: number;
+  target_mis_size?: number | null;
+  r_ratio?: number | null;
 }
 
 // --------------------------------------------------------------------------- //
@@ -286,6 +314,8 @@ export const api = {
   presets: () => getJSON<{ presets: string[] }>("/api/schedule/presets"),
   schedule: (req: ScheduleRequest) =>
     postJSON<ScheduleRequest, ScheduleResponse>("/api/schedule/build", req),
+  scheduleGap: (req: ScheduleGapRequest) =>
+    postJSON<ScheduleGapRequest, ScheduleGapResponse>("/api/schedule/gap", req),
   simulate: (req: SimulateRequest) =>
     postJSON<SimulateRequest, SimulateResponse>("/api/simulate/run", req),
   measure: (req: MeasureRequest) =>
