@@ -150,10 +150,10 @@ export function StagesInfoButton() {
               background: palette.bgPanel,
               border: `1px solid ${palette.queraPurpleSoft}`,
               borderRadius: 14,
-              padding: "22px 26px",
-              maxWidth: 920,
+              padding: "20px 28px",
+              maxWidth: "min(1400px, 95vw)",
               width: "100%",
-              maxHeight: "85vh",
+              maxHeight: "90vh",
               overflow: "auto",
               boxShadow: `0 12px 60px ${palette.queraPurple}66`,
             }}
@@ -200,8 +200,16 @@ export function StagesInfoButton() {
                 borderCollapse: "collapse",
                 fontSize: 12.5,
                 color: palette.textPrimary,
+                tableLayout: "fixed",
               }}
             >
+              <colgroup>
+                <col style={{ width: "13%" }} />
+                <col style={{ width: "38%" }} />
+                <col style={{ width: "22%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "13%" }} />
+              </colgroup>
               <thead>
                 <tr style={{ background: palette.bgInset }}>
                   <Th>Stage</Th>

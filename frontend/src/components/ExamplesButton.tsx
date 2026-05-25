@@ -202,9 +202,9 @@ export function ExamplesButton() {
               border: `1px solid ${palette.queraPurpleSoft}`,
               borderRadius: 14,
               padding: "22px 26px",
-              maxWidth: 980,
+              maxWidth: "min(1400px, 95vw)",
               width: "100%",
-              maxHeight: "85vh",
+              maxHeight: "90vh",
               overflow: "auto",
               boxShadow: `0 12px 60px ${palette.queraPurple}66`,
             }}
