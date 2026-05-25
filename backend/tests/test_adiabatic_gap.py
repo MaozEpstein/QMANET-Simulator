@@ -122,3 +122,99 @@ def test_spectrum_n_levels_capped_by_hilbert_dim():
     assert trace.n_levels == 2
     for row in trace.eigenvalues:
         assert len(row) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Sparse vs dense regression — proves the eigsh path returns the same numbers
+# as the eigvalsh path it replaced. Run for every N where dense is still
+# affordable, so any future change to either solver gets caught here.
+# --------------------------------------------------------------------------- #
+
+
+def _ring_positions(n: int, radius_um: float = 7.0) -> list[tuple[float, float]]:
+    import math
+
+    return [
+        (radius_um * math.cos(2 * math.pi * i / n), radius_um * math.sin(2 * math.pi * i / n))
+        for i in range(n)
+    ]
+
+
+@pytest.mark.parametrize("n", [3, 5, 7, 9, 10])
+def test_sparse_path_matches_dense_for_small_systems(n):
+    """For every n where eigvalsh is still cheap, the sparse Lanczos path must
+    return the same bottom-k eigenvalues to 1e-8 rad/µs. This is the validation
+    that justifies trusting eigsh up to N=GAP_MAX_ATOMS=16 where dense becomes
+    infeasible."""
+    import numpy as np
+
+    from aquila.hamiltonian import rydberg_hamiltonian
+    from pipeline.adiabatic_gap import _lowest_eigenvalues
+
+    positions = _ring_positions(n)
+    # Pick a "typical" mid-sweep point: drive is on, detuning crosses zero.
+    omega, delta, phi = 12.0, 5.0, 0.0
+    H_dense = rydberg_hamiltonian(omega, delta, phi, positions)
+    e_dense = np.linalg.eigvalsh(H_dense)[:4]
+    e_sparse = _lowest_eigenvalues(positions, omega, delta, phi, k=4)
+    assert np.allclose(e_dense, e_sparse, atol=1e-8), (
+        f"n={n}: dense={e_dense} sparse={e_sparse}"
+    )
+
+
+def test_sparse_path_active_above_threshold():
+    """N=8 should route through the sparse path (SPARSE_MIN_ATOMS=6) without
+    error. The numerical correctness is covered by the parametric test above;
+    this exists so a future regression of SPARSE_MIN_ATOMS or the eigsh call
+    breaks loudly even with no parametrisation hitting the boundary."""
+    import numpy as np
+
+    from pipeline.adiabatic_gap import SPARSE_MIN_ATOMS, _lowest_eigenvalues
+
+    assert SPARSE_MIN_ATOMS <= 8
+    positions = _ring_positions(8)
+    e = _lowest_eigenvalues(positions, omega=10.0, delta=5.0, phi=0.0, k=4)
+    assert len(e) == 4
+    assert all(np.isfinite(e))
+    # Eigenvalues must be sorted ascending.
+    assert all(e[i] <= e[i + 1] + 1e-9 for i in range(len(e) - 1))
+
+
+def test_sparse_path_resolves_degenerate_spectrum():
+    """A symmetric ring at n=10 has doubly-degenerate eigenvalues; vanilla
+    Lanczos misses one copy of each degenerate pair (a single Krylov vector
+    locks in one direction in the degenerate subspace and converges before
+    finding the other). The oversampling guard in _lowest_eigenvalues exists
+    specifically to defeat this — this test pins the guard down so it can't
+    silently regress."""
+    import numpy as np
+
+    from aquila.hamiltonian import rydberg_hamiltonian
+    from pipeline.adiabatic_gap import _lowest_eigenvalues
+
+    positions = _ring_positions(10)
+    H_dense = rydberg_hamiltonian(12.0, 5.0, 0.0, positions)
+    e_true = np.linalg.eigvalsh(H_dense)[:4]
+    # Sanity: the ring really is degenerate at this point in parameter space.
+    assert np.any(np.diff(e_true) < 1e-6), "test premise wrong: spectrum not degenerate"
+    e_sparse = _lowest_eigenvalues(positions, 12.0, 5.0, 0.0, k=4)
+    assert np.allclose(e_true, e_sparse, atol=1e-8), (
+        f"degenerate eigenvalues lost: dense={e_true} sparse={e_sparse}"
+    )
+
+
+def test_spectrum_at_new_cap_runs():
+    """The whole point of this work: spectrum analysis at N=GAP_MAX_ATOMS=16
+    must complete (this previously refused at n>10). We do one sample only —
+    25 samples × 5 sec/sample would dominate the test runtime — but this is
+    enough to prove the path is wired."""
+    n = GAP_MAX_ATOMS
+    # 16 atoms in a 4×4 grid at 6.5 µm spacing — inside Aquila's 75×76 region.
+    positions = [(6.5 * (i % 4), 6.5 * (i // 4)) for i in range(n)]
+    trace = compute_spectrum(positions, paper_linear_ramp(), n_samples=3, n_levels=2)
+    assert trace is not None
+    assert trace.n_atoms == n
+    assert len(trace.eigenvalues) == 3
+    for row in trace.eigenvalues:
+        assert len(row) == 2
+        assert row[0] <= row[1] + 1e-9

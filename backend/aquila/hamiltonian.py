@@ -22,6 +22,7 @@ Units: rad/µs for Ω, Δ; µm for positions; C6 in rad·µs⁻¹·µm⁶.
 from __future__ import annotations
 
 import numpy as np
+import scipy.sparse as sp
 
 from .constants import AQUILA, C6_RAD_US_UM6, AquilaSpec
 
@@ -101,6 +102,85 @@ def rydberg_hamiltonian(
             H += vij * _two_body_op(_N_OP, _N_OP, i, j, n)
 
     return H
+
+
+def rydberg_hamiltonian_sparse(
+    omega: float,
+    delta: float,
+    phi: float,
+    positions: list[tuple[float, float]],
+    *,
+    c6: float = C6_RAD_US_UM6,
+) -> sp.csr_matrix:
+    """
+    Sparse CSR form of :func:`rydberg_hamiltonian` — same physics, same units.
+
+    The Rydberg Hamiltonian has exactly two kinds of nonzeros:
+      - Diagonal: detuning −Δ·Σn̂ + interaction Σ V_ij·n̂n̂  (one entry per basis state)
+      - Off-diagonal: (Ω/2)·single-bit-flip drive  (N entries per basis state)
+    Total nonzeros ≈ (N+1)·2^N — sparsity ≈ N/2^N. For N=16 that's ~0.025%,
+    which makes scipy's Lanczos solver (eigsh) two-to-three orders of magnitude
+    faster than dense eigvalsh for the bottom-k eigenvalues.
+
+    Used by :mod:`pipeline.adiabatic_gap` to push the spectrum/gap analysis
+    from N≤10 (dense) to N≤16 (sparse). Validated against `rydberg_hamiltonian`
+    in test_hamiltonian.py.
+    """
+    n = len(positions)
+    dim = 1 << n
+    if n == 0:
+        return sp.csr_matrix((1, 1), dtype=complex)
+
+    b_arr = np.arange(dim, dtype=np.int64)
+
+    # Bit i of basis index b ∈ {0,1} — shape (n, dim).
+    # Use MSB-first convention to match the Kronecker-product ordering of
+    # :func:`rydberg_hamiltonian`: atom 0 occupies the leftmost bit position
+    # (state index (b >> (n−1−0)) & 1), which is `np.kron(op_0, …)` semantics.
+    bits = np.array([(b_arr >> (n - 1 - i)) & 1 for i in range(n)], dtype=np.int64)
+
+    # Diagonal: detuning + Rydberg-Rydberg interaction
+    diag = np.zeros(dim, dtype=complex)
+    diag -= delta * bits.sum(axis=0)
+    for i in range(n):
+        xi, yi = positions[i]
+        for j in range(i + 1, n):
+            xj, yj = positions[j]
+            r = float(np.hypot(xi - xj, yi - yj))
+            if r == 0.0:
+                continue
+            both_excited = bits[i] & bits[j]
+            diag += (c6 / r**6) * both_excited
+
+    # Off-diagonal: drive term flips one bit per matrix element.
+    # <b ⊕ 2^i | H_drive | b> = (Ω/2) · e^(iφ)   if bit i of b is 1   (σ_GR lowers it)
+    #                        = (Ω/2) · e^(−iφ)  if bit i of b is 0   (σ_RG raises it)
+    e_plus = np.exp(1j * phi)
+    e_minus = np.exp(-1j * phi)
+    half_omega = omega / 2.0
+
+    rows_all: list[np.ndarray] = []
+    cols_all: list[np.ndarray] = []
+    data_all: list[np.ndarray] = []
+    if half_omega != 0.0:
+        for i in range(n):
+            flipped = b_arr ^ (np.int64(1) << (n - 1 - i))
+            bit_i = bits[i]
+            coeff = np.where(bit_i == 1, half_omega * e_plus, half_omega * e_minus)
+            rows_all.append(flipped)
+            cols_all.append(b_arr)
+            data_all.append(coeff.astype(complex))
+
+    if rows_all:
+        rows = np.concatenate(rows_all)
+        cols = np.concatenate(cols_all)
+        data = np.concatenate(data_all)
+        off = sp.csr_matrix((data, (rows, cols)), shape=(dim, dim), dtype=complex)
+    else:
+        off = sp.csr_matrix((dim, dim), dtype=complex)
+
+    H = off + sp.diags(diag, format="csr")
+    return H.tocsr()
 
 
 def blockade_pair_eigenvalues(

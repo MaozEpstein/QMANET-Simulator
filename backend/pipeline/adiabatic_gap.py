@@ -19,14 +19,59 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import scipy.sparse.linalg as spla
 
-from aquila.hamiltonian import rydberg_hamiltonian
+from aquila.hamiltonian import rydberg_hamiltonian, rydberg_hamiltonian_sparse
 
 from .schedule import Schedule
 
-GAP_MAX_ATOMS: int = 10
-"""Atoms above this trigger an explicit refusal — 2^11 = 2048-state Hilbert
-space takes ~5 s per eigvalsh on a typical laptop, too slow for a UI button."""
+GAP_MAX_ATOMS: int = 16
+"""Atoms above this trigger an explicit refusal.
+
+We use scipy's Lanczos solver (eigsh) on a sparse CSR Hamiltonian and only
+extract the bottom k eigenvalues — about three orders of magnitude faster than
+the dense eigvalsh path that capped the previous cutoff at 10. The new ceiling
+covers Heawood (14), King's 4×4 (16), and Möbius-Kantor (16). Above 16, the
+2^N Hamiltonian no longer fits comfortably in laptop RAM (~2 GB at N=16,
+~8 GB at N=18) so the synchronous request would either OOM or block the UI
+for minutes."""
+
+SPARSE_MIN_ATOMS: int = 6
+"""Below this the dense eigvalsh path is faster than ARPACK setup overhead, so
+we stick to dense. eigsh also requires k < dim, which fails for dim ≤ n_levels."""
+
+
+def _lowest_eigenvalues(
+    positions: list[tuple[float, float]],
+    omega: float,
+    delta: float,
+    phi: float,
+    k: int,
+) -> np.ndarray:
+    """Return the ``k`` lowest eigenvalues of H(Ω, Δ, φ) in ascending order.
+
+    Picks dense eigvalsh for small systems (N < SPARSE_MIN_ATOMS) and sparse
+    Lanczos (eigsh) above that, since ARPACK only pays off once dim ≫ k. The
+    physics is identical; this is purely a perf swap. Validated against the
+    dense path in test_adiabatic_gap.py.
+
+    Degeneracy guard: vanilla Lanczos can miss copies of a degenerate
+    eigenvalue (each Krylov vector picks one direction in the degenerate
+    subspace and converges before discovering the others). On symmetric graphs
+    like rings or hypercubes this happens routinely. We oversample — ask for
+    ``2k+4`` eigenvalues and keep the bottom k — so any missed copy still
+    leaves enough true bottom-eigenvalues in the returned set."""
+    n = len(positions)
+    dim = 1 << n
+
+    if n < SPARSE_MIN_ATOMS or k >= dim - 1:
+        H_dense = rydberg_hamiltonian(omega, delta, phi, positions)
+        return np.linalg.eigvalsh(H_dense)[:k]
+
+    H_sparse = rydberg_hamiltonian_sparse(omega, delta, phi, positions)
+    k_request = min(2 * k + 4, dim - 2)
+    vals = spla.eigsh(H_sparse, k=k_request, which="SA", return_eigenvectors=False)
+    return np.sort(np.real(vals))[:k]
 
 DEFAULT_GAP_SAMPLES: int = 25
 """Number of time samples — chosen so a 4 µs schedule resolves features
@@ -100,9 +145,7 @@ def compute_min_gap(
         omega = schedule.omega.value_at(t)
         delta = schedule.delta.value_at(t)
         phi = schedule.phi.value_at(t)
-        H = rydberg_hamiltonian(omega, delta, phi, positions)
-        # eigvalsh returns ascending — gap is e[1] - e[0].
-        e = np.linalg.eigvalsh(H)
+        e = _lowest_eigenvalues(positions, omega, delta, phi, k=2)
         gap = float(e[1] - e[0]) if e.size >= 2 else 0.0
         gaps.append(max(0.0, gap))  # numerical noise can give tiny negatives
 
@@ -184,8 +227,7 @@ def compute_spectrum(
         omega = schedule.omega.value_at(t)
         delta = schedule.delta.value_at(t)
         phi = schedule.phi.value_at(t)
-        H = rydberg_hamiltonian(omega, delta, phi, positions)
-        e = np.linalg.eigvalsh(H)
+        e = _lowest_eigenvalues(positions, omega, delta, phi, k=k)
         rows.append(tuple(float(v) for v in e[:k]))
     return SpectrumTrace(
         times=tuple(times),
