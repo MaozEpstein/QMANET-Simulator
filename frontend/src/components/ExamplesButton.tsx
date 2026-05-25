@@ -13,7 +13,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/rest";
-import { buildC4Example, buildPetersenExample } from "../lib/examples";
+import {
+  buildC4Example,
+  buildK33Example,
+  buildPetersenExample,
+  buildQ3Example,
+} from "../lib/examples";
 import {
   deleteSaved,
   exportJSON,
@@ -88,6 +93,26 @@ const EXAMPLES: Example[] = [
     n: 4,
     category: "starter",
     build: buildC4Example,
+  },
+  {
+    id: "k33",
+    name: "דו-צדדי מלא (K₃,₃)",
+    englishName: "Complete bipartite K3,3",
+    description:
+      "שתי שורות של 3 קודקודים, כל קודקוד מחובר לכל הקודקודים בשורה הנגדית (9 קשתות, אפס בתוך השורה). המשלים: שני משולשים נפרדים — אחד לכל שורה. α(G)=3, MaxClique=2. Embedding מתבטא בשני אשכולות אטומים מובחנים.",
+    n: 6,
+    category: "starter",
+    build: buildK33Example,
+  },
+  {
+    id: "q3",
+    name: "קוביה (Q₃)",
+    englishName: "3-cube hypercube",
+    description:
+      "8 קודקודים על קוביה (ריבוע חיצוני + ריבוע פנימי + 4 חיבורים). 3-regular, דו-צדדי. α(G)=4 — לא טריוויאלי לראות בעין: 4 קודקודים בצבע אחד של החלוקה הבי-פרטיסטית הופכים ל-K₄ בולט בגרף המשלים.",
+    n: 8,
+    category: "topology",
+    build: buildQ3Example,
   },
   {
     id: "petersen",
