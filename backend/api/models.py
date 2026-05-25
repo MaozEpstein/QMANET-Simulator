@@ -149,6 +149,54 @@ class ScheduleGapResponse(BaseModel):
     max_atoms: int
 
 
+class ScheduleSpectrumRequest(BaseModel):
+    positions: list[NodePos]
+    schedule: ScheduleDTO
+    n_samples: int = Field(default=25, ge=3, le=200)
+    n_levels: int = Field(default=4, ge=1, le=16)
+
+
+class SpectrumTraceDTO(BaseModel):
+    times: list[float]
+    """Sample times in µs."""
+    eigenvalues: list[list[float]]
+    """eigenvalues[i] = k lowest eigenvalues at times[i], ascending."""
+    n_levels: int
+    n_atoms: int
+
+
+class ScheduleSpectrumResponse(BaseModel):
+    trace: SpectrumTraceDTO | None
+    """null when system is too large (>GAP_MAX_ATOMS) to diagonalise."""
+    n_atoms: int
+    max_atoms: int
+
+
+class PhaseDiagramRequest(BaseModel):
+    positions: list[NodePos]
+    omega_min: float = Field(default=0.5, ge=0.0, le=15.8)
+    omega_max: float = Field(default=15.0, gt=0.0, le=15.8)
+    n_omega: int = Field(default=25, ge=2, le=64)
+    delta_min: float = Field(default=-30.0, ge=-125.0, le=125.0)
+    delta_max: float = Field(default=30.0, ge=-125.0, le=125.0)
+    n_delta: int = Field(default=25, ge=2, le=64)
+
+
+class PhaseDiagramDTO(BaseModel):
+    omegas: list[float]
+    deltas: list[float]
+    mean_n: list[list[float]]
+    """mean_n[d_idx][o_idx] = ⟨Σ n̂_i⟩ on the ground state."""
+    n_atoms: int
+
+
+class PhaseDiagramResponse(BaseModel):
+    diagram: PhaseDiagramDTO | None
+    """null when system is too large (>PHASE_DIAGRAM_MAX_ATOMS)."""
+    n_atoms: int
+    max_atoms: int
+
+
 # --------------------------------------------------------------------------- #
 # Phase 4 — Evolution
 # --------------------------------------------------------------------------- #

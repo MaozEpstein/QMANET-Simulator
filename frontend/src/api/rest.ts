@@ -154,6 +154,51 @@ export interface ScheduleGapResponse {
   max_atoms: number;
 }
 
+export interface ScheduleSpectrumRequest {
+  positions: NodePos[];
+  schedule: ScheduleDTO;
+  n_samples?: number;
+  n_levels?: number;
+}
+
+export interface SpectrumTraceDTO {
+  times: number[];
+  /** eigenvalues[i] = k lowest eigenvalues at times[i], ascending. */
+  eigenvalues: number[][];
+  n_levels: number;
+  n_atoms: number;
+}
+
+export interface ScheduleSpectrumResponse {
+  trace: SpectrumTraceDTO | null;
+  n_atoms: number;
+  max_atoms: number;
+}
+
+export interface PhaseDiagramRequest {
+  positions: NodePos[];
+  omega_min?: number;
+  omega_max?: number;
+  n_omega?: number;
+  delta_min?: number;
+  delta_max?: number;
+  n_delta?: number;
+}
+
+export interface PhaseDiagramDTO {
+  omegas: number[];
+  deltas: number[];
+  /** mean_n[d_idx][o_idx] = ⟨Σ n̂_i⟩ on the ground state. */
+  mean_n: number[][];
+  n_atoms: number;
+}
+
+export interface PhaseDiagramResponse {
+  diagram: PhaseDiagramDTO | null;
+  n_atoms: number;
+  max_atoms: number;
+}
+
 // --------------------------------------------------------------------------- //
 // Phase 4 — Simulation
 // --------------------------------------------------------------------------- //
@@ -316,6 +361,16 @@ export const api = {
     postJSON<ScheduleRequest, ScheduleResponse>("/api/schedule/build", req),
   scheduleGap: (req: ScheduleGapRequest) =>
     postJSON<ScheduleGapRequest, ScheduleGapResponse>("/api/schedule/gap", req),
+  scheduleSpectrum: (req: ScheduleSpectrumRequest) =>
+    postJSON<ScheduleSpectrumRequest, ScheduleSpectrumResponse>(
+      "/api/schedule/spectrum",
+      req,
+    ),
+  phaseDiagram: (req: PhaseDiagramRequest) =>
+    postJSON<PhaseDiagramRequest, PhaseDiagramResponse>(
+      "/api/spectrum/phase_diagram",
+      req,
+    ),
   simulate: (req: SimulateRequest) =>
     postJSON<SimulateRequest, SimulateResponse>("/api/simulate/run", req),
   measure: (req: MeasureRequest) =>

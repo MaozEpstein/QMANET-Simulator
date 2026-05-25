@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { api, type GapTraceDTO } from "../api/rest";
+import {
+  api,
+  type GapTraceDTO,
+  type PhaseDiagramDTO,
+  type SpectrumTraceDTO,
+} from "../api/rest";
 import { ConstraintBadge, ConstraintSummary } from "../components/ConstraintBadge";
 import { HamiltonianTeX } from "../components/HamiltonianTeX";
 import { Panel } from "../components/Panel";
+import { PhaseDiagram2D } from "../components/PhaseDiagram2D";
 import { PulsePlot, valueAt } from "../components/PulsePlot";
 import { Slider } from "../components/Slider";
+import { SpectrumPlot } from "../components/SpectrumPlot";
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
 
@@ -46,6 +53,12 @@ export function Stage4_Schedule() {
   const [gap, setGap] = useState<GapTraceDTO | null>(null);
   const [gapAtomsTooMany, setGapAtomsTooMany] = useState<{ n: number; max: number } | null>(null);
   const [gapLoading, setGapLoading] = useState(false);
+  const [spectrum, setSpectrum] = useState<SpectrumTraceDTO | null>(null);
+  const [spectrumTooMany, setSpectrumTooMany] = useState<{ n: number; max: number } | null>(null);
+  const [spectrumLoading, setSpectrumLoading] = useState(false);
+  const [phase, setPhase] = useState<PhaseDiagramDTO | null>(null);
+  const [phaseTooMany, setPhaseTooMany] = useState<{ n: number; max: number } | null>(null);
+  const [phaseLoading, setPhaseLoading] = useState(false);
 
   const run = useCallback(async () => {
     setLoading(true);
@@ -58,6 +71,8 @@ export function Stage4_Schedule() {
       setSchedule(res);
       setGap(null); // schedule changed → stale gap
       setGapAtomsTooMany(null);
+      setSpectrum(null);
+      setSpectrumTooMany(null);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -88,6 +103,59 @@ export function Stage4_Schedule() {
       setGapLoading(false);
     }
   }, [schedule, embed]);
+
+  const runSpectrumAnalysis = useCallback(async () => {
+    if (!schedule || !embed) return;
+    setSpectrumLoading(true);
+    setErr(null);
+    try {
+      const res = await api.scheduleSpectrum({
+        positions: embed.positions,
+        schedule: schedule.schedule,
+        n_samples: 30,
+        n_levels: 4,
+      });
+      if (res.trace === null) {
+        setSpectrum(null);
+        setSpectrumTooMany({ n: res.n_atoms, max: res.max_atoms });
+      } else {
+        setSpectrum(res.trace);
+        setSpectrumTooMany(null);
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSpectrumLoading(false);
+    }
+  }, [schedule, embed]);
+
+  const runPhaseDiagram = useCallback(async () => {
+    if (!embed) return;
+    setPhaseLoading(true);
+    setErr(null);
+    try {
+      const res = await api.phaseDiagram({
+        positions: embed.positions,
+        omega_min: 0.5,
+        omega_max: 15.0,
+        n_omega: 25,
+        delta_min: -30.0,
+        delta_max: 30.0,
+        n_delta: 25,
+      });
+      if (res.diagram === null) {
+        setPhase(null);
+        setPhaseTooMany({ n: res.n_atoms, max: res.max_atoms });
+      } else {
+        setPhase(res.diagram);
+        setPhaseTooMany(null);
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setPhaseLoading(false);
+    }
+  }, [embed]);
 
   useEffect(() => {
     run();
@@ -253,26 +321,44 @@ export function Stage4_Schedule() {
                   gap: 8,
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                   <div style={{ fontWeight: 600, fontSize: 12, color: palette.textPrimary }}>
                     ניתוח גאפ אדיאבטי
                   </div>
-                  <button
-                    onClick={runGapAnalysis}
-                    disabled={gapLoading}
-                    style={{
-                      padding: "5px 10px",
-                      borderRadius: 6,
-                      border: "none",
-                      background: palette.queraPurple,
-                      color: "#fff",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: gapLoading ? "wait" : "pointer",
-                    }}
-                  >
-                    {gapLoading ? "מחשב…" : "↻ חשב δ_min"}
-                  </button>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button
+                      onClick={runGapAnalysis}
+                      disabled={gapLoading}
+                      style={{
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        border: "none",
+                        background: palette.queraPurple,
+                        color: "#fff",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: gapLoading ? "wait" : "pointer",
+                      }}
+                    >
+                      {gapLoading ? "מחשב…" : "↻ חשב δ_min"}
+                    </button>
+                    <button
+                      onClick={runSpectrumAnalysis}
+                      disabled={spectrumLoading}
+                      style={{
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${palette.queraPurpleSoft}`,
+                        background: "transparent",
+                        color: palette.textSecondary,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: spectrumLoading ? "wait" : "pointer",
+                      }}
+                    >
+                      {spectrumLoading ? "מחשב…" : "📊 ספקטרום"}
+                    </button>
+                  </div>
                 </div>
                 {gap && (
                   <div
@@ -375,6 +461,71 @@ export function Stage4_Schedule() {
           </div>
         </div>
       </Panel>
+
+      {spectrum && (
+        <Panel
+          title="📊 ספקטרום אנרגיות לאורך הפולס"
+          subtitle="ארבעת הע״ע הנמוכים של H(t). ה-avoided crossing במינימום הגאפ הוא הצוואר הבקבוק האדיאבטי."
+        >
+          <SpectrumPlot
+            trace={spectrum}
+            minGapHighlight={
+              gap && gap.min_gap > 0
+                ? { t_us: gap.t_at_min_gap, gap: gap.min_gap }
+                : null
+            }
+            pixelWidth={920}
+            pixelHeight={300}
+          />
+        </Panel>
+      )}
+      {spectrumTooMany && (
+        <Panel title="📊 ספקטרום אנרגיות">
+          <div style={{ fontSize: 12, color: palette.textMuted }}>
+            הגרף גדול מ-{spectrumTooMany.max} אטומים ({spectrumTooMany.n}). דיאגונליזציה מלאה איטית
+            מדי לחישוב סינכרוני.
+          </div>
+        </Panel>
+      )}
+
+      {embed && (
+        <Panel
+          title="📐 פאזות במישור (Ω, Δ)"
+          subtitle="⟨Σnᵢ⟩ של מצב היסוד בכל נקודה במישור. אזורי צבע = פאזות (no-Rydberg / Z₂ / MIS / fully excited)."
+          right={
+            <button
+              onClick={runPhaseDiagram}
+              disabled={phaseLoading}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: "none",
+                background: palette.queraPurple,
+                color: "#fff",
+                fontSize: 11.5,
+                fontWeight: 600,
+                cursor: phaseLoading ? "wait" : "pointer",
+              }}
+            >
+              {phaseLoading ? "מחשב…" : phase ? "↻ חשב מחדש" : "↻ חשב מפת פאזות"}
+            </button>
+          }
+        >
+          {phase && <PhaseDiagram2D diagram={phase} pixelWidth={780} pixelHeight={460} />}
+          {phaseTooMany && (
+            <div style={{ fontSize: 12, color: palette.textMuted }}>
+              הגרף גדול מ-{phaseTooMany.max} אטומים ({phaseTooMany.n}). diagonalisation מלאה על
+              מטריצה 2^N × 2^N על גרידה 25×25 איטית מדי.
+            </div>
+          )}
+          {!phase && !phaseTooMany && (
+            <div style={{ fontSize: 12, color: palette.textMuted }}>
+              לחץ כדי לסרוק את מישור (Ω, Δ) ולראות את הפאזות של מצב היסוד. סריקה אורכת ~1–5 שניות
+              עבור N≤8.
+            </div>
+          )}
+        </Panel>
+      )}
 
       {schedule && (
         <Panel

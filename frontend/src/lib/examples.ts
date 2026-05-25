@@ -171,6 +171,373 @@ export function buildTriangularPrismExample(): MANETResponse {
   };
 }
 
+/**
+ * King's graph on a 3×3 board — Ebadi 2022 §6 canonical benchmark.
+ *
+ * 9 vertices on a 3×3 grid; an edge between any two cells within "king-move"
+ * distance (Chebyshev ≤ 1). 20 edges total. α(G)=4 (the four corners form an
+ * MIS), ω(G)=4 (any 2×2 sub-grid is a K₄). This is THE Rydberg-array MIS
+ * benchmark — every reader of Ebadi 2022 recognises it instantly.
+ */
+export function buildKings3x3Example(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const step = 25;
+  const positions = Array.from({ length: 9 }, (_, k) => {
+    const r = Math.floor(k / 3); // 0..2 (row, top first)
+    const c = k % 3;
+    // In editor coords, larger uy = top of screen. Row 0 (top) → uy = cy + step.
+    return { id: k, x: cx + (c - 1) * step, y: cy + (1 - r) * step };
+  });
+  const edges: [number, number][] = [];
+  for (let i = 0; i < 9; i++) {
+    for (let j = i + 1; j < 9; j++) {
+      const ri = Math.floor(i / 3);
+      const ci = i % 3;
+      const rj = Math.floor(j / 3);
+      const cj = j % 3;
+      if (Math.max(Math.abs(ri - rj), Math.abs(ci - cj)) === 1) {
+        edges.push([i, j]);
+      }
+    }
+  }
+  return {
+    graph: { n_nodes: 9, edges, node_positions: positions },
+    config: { n_nodes: 9, box_size: 200, comm_radius: 30, seed: null },
+  };
+}
+
+/**
+ * King's graph on a 4×4 board — Ebadi 2022 §6 (Fig 4) next-step benchmark.
+ *
+ * 16 vertices on a 4×4 grid, edges between any two cells within king-move
+ * distance (Chebyshev ≤ 1). 42 edges total: 12 horizontal + 12 vertical +
+ * 9 diagonal "/" + 9 diagonal "\". α(G)=4 (the four corners), ω(G)=4 (any
+ * 2×2 sub-grid forms a K₄).
+ *
+ * Note: 16 atoms means the local QuTiP sesolve (Stage 5) is impractical
+ * (2^16 = 65k states); Stage 4 spectrum/phase-diagram will also refuse.
+ * Stages 1–4 (build, complement, embed, schedule) and Stage 8 (routing)
+ * still work — sufficient to demonstrate the topology.
+ */
+export function buildKings4x4Example(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const step = 25;
+  const positions = Array.from({ length: 16 }, (_, k) => {
+    const r = Math.floor(k / 4); // 0..3 (row, row 0 at the top of the screen)
+    const c = k % 4;
+    // Editor convention: larger uy = higher on screen. Row 0 (top) ↦ uy = cy + 1.5·step.
+    return { id: k, x: cx + (c - 1.5) * step, y: cy + (1.5 - r) * step };
+  });
+  const edges: [number, number][] = [];
+  for (let i = 0; i < 16; i++) {
+    for (let j = i + 1; j < 16; j++) {
+      const ri = Math.floor(i / 4);
+      const ci = i % 4;
+      const rj = Math.floor(j / 4);
+      const cj = j % 4;
+      if (Math.max(Math.abs(ri - rj), Math.abs(ci - cj)) === 1) {
+        edges.push([i, j]);
+      }
+    }
+  }
+  return {
+    graph: { n_nodes: 16, edges, node_positions: positions },
+    config: { n_nodes: 16, box_size: 200, comm_radius: 30, seed: null },
+  };
+}
+
+/**
+ * Bernien 2017 1D Rydberg chain (N=9) — Nature 551.
+ *
+ * The experiment that opened the entire Rydberg-array-dynamics field:
+ * 9 atoms equally spaced along a line; nearest-neighbour blockade only.
+ * Under the `bernien_2017_sweep` schedule preset, this chain prepares the
+ * antiferromagnetic Z₂ ordered state — the project's canonical phase-
+ * transition demo.
+ *
+ * α(G)=5 (alternating vertices), ω(G)=2 (path is triangle-free). 2^9 = 512
+ * states — Stage 5 runs in seconds.
+ */
+export function buildBernienChain9Example(): MANETResponse {
+  const n = 9;
+  const xStart = 10;
+  const span = 180;
+  const step = span / (n - 1);
+  const positions = Array.from({ length: n }, (_, i) => ({
+    id: i,
+    x: xStart + i * step,
+    y: 50,
+  }));
+  const edges: [number, number][] = [];
+  for (let i = 0; i < n - 1; i++) edges.push([i, i + 1]);
+  return {
+    graph: { n_nodes: n, edges, node_positions: positions },
+    config: { n_nodes: n, box_size: 200, comm_radius: 25, seed: null },
+  };
+}
+
+/**
+ * MANET Random Geometric Graph (n=12, R=30 µm) — the project's anchor model.
+ *
+ * 12 device positions hand-picked to span the 200×100 box with a mix of
+ * dense clusters and isolated nodes — visually evokes an urban MANET. Edges
+ * are derived deterministically by the RGG rule: connect every pair whose
+ * Euclidean distance ≤ R. This is the *exact* model the project abstract
+ * commits to ("Routing in MANETs … Random Geometric Graph"), so showing a
+ * concrete instance is essential.
+ *
+ * α and ω depend on the chosen positions — computed live by the pipeline.
+ */
+export function buildManetRGG12Example(): MANETResponse {
+  const positions = [
+    { id: 0, x: 32, y: 28 },
+    { id: 1, x: 45, y: 65 },
+    { id: 2, x: 78, y: 45 },
+    { id: 3, x: 95, y: 15 },
+    { id: 4, x: 120, y: 70 },
+    { id: 5, x: 140, y: 40 },
+    { id: 6, x: 165, y: 25 },
+    { id: 7, x: 170, y: 80 },
+    { id: 8, x: 60, y: 85 },
+    { id: 9, x: 100, y: 50 },
+    { id: 10, x: 135, y: 75 },
+    { id: 11, x: 90, y: 25 },
+  ];
+  const R = 30;
+  const edges: [number, number][] = [];
+  for (let i = 0; i < positions.length; i++) {
+    for (let j = i + 1; j < positions.length; j++) {
+      const dx = positions[i].x - positions[j].x;
+      const dy = positions[i].y - positions[j].y;
+      if (Math.hypot(dx, dy) <= R) edges.push([i, j]);
+    }
+  }
+  return {
+    graph: { n_nodes: 12, edges, node_positions: positions },
+    config: { n_nodes: 12, box_size: 200, comm_radius: R, seed: 42 },
+  };
+}
+
+/**
+ * C₇ — the heptagonal cycle. A small "hard" instance for benchmark stress.
+ *
+ * 7 vertices on a circle, 7 nearest-neighbour edges. α(G)=3, ω(G)=2.
+ * Odd cycles defeat 2-colourings, and the count of (α−1)-IS (= 14) is
+ * larger than the count of MIS (= 7), giving Hardness Parameter
+ * HP = 14 / (3 · 7) ≈ 0.67. Useful for showing benchmark cases where the
+ * quantum approximation ratio R drops below 1.0 — important context for
+ * any honest SA-vs-quantum comparison.
+ */
+export function buildC7HardExample(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const r = 35;
+  const n = 7;
+  const positions = Array.from({ length: n }, (_, i) => {
+    const theta = -Math.PI / 2 + (2 * Math.PI * i) / n;
+    return { id: i, x: cx + r * Math.cos(theta), y: cy + r * Math.sin(theta) };
+  });
+  const edges: [number, number][] = [];
+  for (let i = 0; i < n; i++) edges.push([i, (i + 1) % n]);
+  return {
+    graph: { n_nodes: n, edges, node_positions: positions },
+    config: { n_nodes: n, box_size: 200, comm_radius: 60, seed: null },
+  };
+}
+
+/**
+ * Möbius–Kantor graph — Generalised Petersen GP(8, 3).
+ *
+ * Two concentric octagons: outer 8-cycle (vertices 0..7), inner cycle whose
+ * "chord" jumps by 3 (vertices 8..15 with v_i ~ v_{(i+3) mod 8}), and 8 spokes
+ * u_i ~ v_i. Cubic, bipartite, vertex-transitive, girth 6. α(G)=8 (one
+ * bipartition class), ω(G)=2 (bipartite ⇒ triangle-free).
+ *
+ * Note: 16 atoms — Stage 5 (full sesolve) is heavy at this size; exact MIS
+ * still works (≤28 limit).
+ */
+export function buildMobiusKantorExample(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const rOuter = 38;
+  const rInner = 18;
+  const positions: { id: number; x: number; y: number }[] = [];
+  for (let i = 0; i < 8; i++) {
+    const theta = -Math.PI / 2 + (i * Math.PI) / 4;
+    positions.push({ id: i, x: cx + rOuter * Math.cos(theta), y: cy + rOuter * Math.sin(theta) });
+  }
+  for (let i = 0; i < 8; i++) {
+    const theta = -Math.PI / 2 + (i * Math.PI) / 4;
+    positions.push({
+      id: 8 + i,
+      x: cx + rInner * Math.cos(theta),
+      y: cy + rInner * Math.sin(theta),
+    });
+  }
+  const edges: [number, number][] = [];
+  // Outer 8-cycle
+  for (let i = 0; i < 8; i++) edges.push([i, (i + 1) % 8]);
+  // Spokes outer ↔ inner
+  for (let i = 0; i < 8; i++) edges.push([i, 8 + i]);
+  // Inner chords: v_i ~ v_{(i+3) mod 8}; dedupe via i < j
+  for (let i = 0; i < 8; i++) {
+    const j = (i + 3) % 8;
+    const a = 8 + Math.min(i, j);
+    const b = 8 + Math.max(i, j);
+    if (!edges.some(([u, v]) => u === a && v === b)) edges.push([a, b]);
+  }
+  return {
+    graph: { n_nodes: 16, edges, node_positions: positions },
+    config: { n_nodes: 16, box_size: 200, comm_radius: 25, seed: null },
+  };
+}
+
+/**
+ * Heawood graph — 14 vertices, cubic, bipartite, smallest (3,6)-cage.
+ *
+ * The incidence graph of the Fano plane (7 points + 7 lines). Drawn here as
+ * a 14-gon with 7 chords. α(G)=7, ω(G)=2. Note: 14 atoms means Stage 5 is
+ * slow but tractable; exact MIS still runs.
+ */
+export function buildHeawoodExample(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const r = 40;
+  const n = 14;
+  const positions = Array.from({ length: n }, (_, i) => {
+    const theta = -Math.PI / 2 + (2 * Math.PI * i) / n;
+    return { id: i, x: cx + r * Math.cos(theta), y: cy + r * Math.sin(theta) };
+  });
+  const edges: [number, number][] = [];
+  // 14-cycle around the perimeter
+  for (let i = 0; i < n; i++) edges.push([i, (i + 1) % n]);
+  // 7 chords realising the Fano-plane incidence structure
+  const chords: [number, number][] = [
+    [0, 5], [2, 9], [4, 11], [6, 13], [8, 1], [10, 3], [12, 7],
+  ];
+  for (const [a, b] of chords) edges.push([Math.min(a, b), Math.max(a, b)]);
+  return {
+    graph: { n_nodes: n, edges, node_positions: positions },
+    config: { n_nodes: n, box_size: 200, comm_radius: 25, seed: null },
+  };
+}
+
+/**
+ * Grötzsch graph = Mycielski(4) — 11 vertices, triangle-free, χ=4.
+ *
+ * The classical separator between MaxClique and chromatic number: ω(G)=2
+ * (no triangles) yet χ(G)=4 — so colouring is genuinely harder than clique-
+ * finding. α(G)=5. Built as an inner C₅ (ids 0..4), 5 "twins" (5..9) each
+ * connected to the two neighbours of its mirror in C₅, plus an apex (10)
+ * connected to every twin.
+ */
+export function buildGrotzschExample(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const rInner = 14;
+  const rOuter = 34;
+  const positions: { id: number; x: number; y: number }[] = [];
+  for (let i = 0; i < 5; i++) {
+    const theta = -Math.PI / 2 + (2 * Math.PI * i) / 5;
+    positions.push({ id: i, x: cx + rInner * Math.cos(theta), y: cy + rInner * Math.sin(theta) });
+  }
+  for (let i = 0; i < 5; i++) {
+    const theta = -Math.PI / 2 + (2 * Math.PI * i) / 5;
+    positions.push({
+      id: 5 + i,
+      x: cx + rOuter * Math.cos(theta),
+      y: cy + rOuter * Math.sin(theta),
+    });
+  }
+  // Apex above the structure
+  positions.push({ id: 10, x: cx, y: cy + rOuter + 12 });
+
+  const edges: [number, number][] = [];
+  // Inner C₅
+  for (let i = 0; i < 5; i++) edges.push([i, (i + 1) % 5]);
+  // Twin links: vertex (5+i) ~ neighbours of vertex i in C₅
+  for (let i = 0; i < 5; i++) {
+    const a = (i - 1 + 5) % 5;
+    const b = (i + 1) % 5;
+    edges.push([Math.min(5 + i, a), Math.max(5 + i, a)]);
+    edges.push([Math.min(5 + i, b), Math.max(5 + i, b)]);
+  }
+  // Apex connects to all twins
+  for (let i = 0; i < 5; i++) edges.push([5 + i, 10]);
+  return {
+    graph: { n_nodes: 11, edges, node_positions: positions },
+    config: { n_nodes: 11, box_size: 200, comm_radius: 30, seed: null },
+  };
+}
+
+/**
+ * Turán graph T(9, 3) — complete 3-partite K_{3,3,3}.
+ *
+ * 9 vertices split into 3 independent parts of size 3 each, with every
+ * inter-part pair connected (27 edges, no intra-part edges). ω(G)=3 (one
+ * from each part), α(G)=3 (one entire part). The extremal graph that
+ * achieves the largest edge count without containing K₄.
+ */
+export function buildTuran93Example(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const partR = 35;
+  const innerR = 7;
+  // Three part-centres at 120° apart (90°, 210°, 330° → top, lower-left, lower-right)
+  const partAngles = [Math.PI / 2, 7 * Math.PI / 6, 11 * Math.PI / 6];
+  const positions: { id: number; x: number; y: number }[] = [];
+  for (let p = 0; p < 3; p++) {
+    const pcx = cx + partR * Math.cos(partAngles[p]);
+    const pcy = cy + partR * Math.sin(partAngles[p]);
+    // 3 vertices on a small triangle around the part centre
+    for (let k = 0; k < 3; k++) {
+      const inner = -Math.PI / 2 + (2 * Math.PI * k) / 3;
+      positions.push({
+        id: 3 * p + k,
+        x: pcx + innerR * Math.cos(inner),
+        y: pcy + innerR * Math.sin(inner),
+      });
+    }
+  }
+  // Edges: every pair across parts
+  const edges: [number, number][] = [];
+  for (let i = 0; i < 9; i++) {
+    for (let j = i + 1; j < 9; j++) {
+      if (Math.floor(i / 3) !== Math.floor(j / 3)) edges.push([i, j]);
+    }
+  }
+  return {
+    graph: { n_nodes: 9, edges, node_positions: positions },
+    config: { n_nodes: 9, box_size: 200, comm_radius: 50, seed: null },
+  };
+}
+
+/**
+ * K₅ — the complete graph on 5 vertices.
+ *
+ * 5 vertices arranged on a regular pentagon, all 10 edges present.
+ * ω(G)=5, α(G)=1, complement = empty graph on 5 vertices. The canonical
+ * sanity baseline: the pipeline should report |MaxClique|=5 and place the
+ * "MIS" as a single atom (any one of them).
+ */
+export function buildK5Example(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const r = 35;
+  const positions = Array.from({ length: 5 }, (_, i) => {
+    const theta = -Math.PI / 2 + (2 * Math.PI * i) / 5;
+    return { id: i, x: cx + r * Math.cos(theta), y: cy + r * Math.sin(theta) };
+  });
+  const edges: [number, number][] = [];
+  for (let i = 0; i < 5; i++) for (let j = i + 1; j < 5; j++) edges.push([i, j]);
+  return {
+    graph: { n_nodes: 5, edges, node_positions: positions },
+    config: { n_nodes: 5, box_size: 200, comm_radius: 70, seed: null },
+  };
+}
+
 export function buildPetersenExample(): MANETResponse {
   const cx = 100;
   const cy = 50;

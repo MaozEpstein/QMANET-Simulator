@@ -119,4 +119,87 @@ def compute_min_gap(
     )
 
 
-__all__ = ["GapTrace", "compute_min_gap", "GAP_MAX_ATOMS", "DEFAULT_GAP_SAMPLES"]
+@dataclass(frozen=True)
+class SpectrumTrace:
+    """Lowest k eigenvalues of H(t) at evenly spaced sample times."""
+
+    times: tuple[float, ...]
+    """Sample times in µs."""
+
+    eigenvalues: tuple[tuple[float, ...], ...]
+    """``eigenvalues[i]`` = ascending k lowest eigenvalues at ``times[i]``."""
+
+    n_levels: int
+    """Number of low-lying levels returned per sample (k)."""
+
+    n_atoms: int
+
+    def to_dict(self) -> dict:
+        return {
+            "times": list(self.times),
+            "eigenvalues": [list(row) for row in self.eigenvalues],
+            "n_levels": self.n_levels,
+            "n_atoms": self.n_atoms,
+        }
+
+
+def compute_spectrum(
+    positions: list[tuple[float, float]],
+    schedule: Schedule,
+    n_samples: int = DEFAULT_GAP_SAMPLES,
+    n_levels: int = 4,
+) -> SpectrumTrace | None:
+    """
+    Sample the k lowest eigenvalues of H(t) along the schedule.
+
+    Same plumbing as :func:`compute_min_gap` — diagonalise the dense 2^N
+    Hamiltonian at ``n_samples`` evenly spaced times — but keep the first
+    ``n_levels`` eigenvalues rather than only the gap. Used by Stage 4 to
+    plot E_0(t), E_1(t), … so the user can see the avoided crossing where
+    δ_min occurs.
+
+    Returns ``None`` when ``len(positions) > GAP_MAX_ATOMS`` so the caller
+    can surface a "too large" message instead of stalling for minutes.
+    """
+    n = len(positions)
+    if n == 0 or n > GAP_MAX_ATOMS:
+        return None
+    if n_samples < 3:
+        n_samples = 3
+    dim = 1 << n
+    k = max(1, min(n_levels, dim))
+
+    t_total = schedule.duration
+    if t_total <= 0:
+        return SpectrumTrace(
+            times=(0.0,),
+            eigenvalues=((0.0,) * k,),
+            n_levels=k,
+            n_atoms=n,
+        )
+
+    times = [i * t_total / (n_samples - 1) for i in range(n_samples)]
+    rows: list[tuple[float, ...]] = []
+    for t in times:
+        omega = schedule.omega.value_at(t)
+        delta = schedule.delta.value_at(t)
+        phi = schedule.phi.value_at(t)
+        H = rydberg_hamiltonian(omega, delta, phi, positions)
+        e = np.linalg.eigvalsh(H)
+        rows.append(tuple(float(v) for v in e[:k]))
+    return SpectrumTrace(
+        times=tuple(times),
+        eigenvalues=tuple(rows),
+        n_levels=k,
+        n_atoms=n,
+    )
+
+
+__all__ = [
+    "GapTrace",
+    "SpectrumTrace",
+    "compute_min_gap",
+    "compute_spectrum",
+    "GAP_MAX_ATOMS",
+    "DEFAULT_GAP_SAMPLES",
+]

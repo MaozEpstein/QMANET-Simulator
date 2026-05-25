@@ -34,6 +34,9 @@ from api.models import (
     EmbedResponse,
     GapTraceDTO,
     GraphDTO,
+    PhaseDiagramDTO,
+    PhaseDiagramRequest,
+    PhaseDiagramResponse,
     MANETRequest,
     MANETResponse,
     MISResponse,
@@ -56,6 +59,9 @@ from api.models import (
     ScheduleGapResponse,
     ScheduleRequest,
     ScheduleResponse,
+    ScheduleSpectrumRequest,
+    ScheduleSpectrumResponse,
+    SpectrumTraceDTO,
     SimulateRequest,
     SimulateResponse,
     SimulationFrameDTO,
@@ -63,7 +69,8 @@ from api.models import (
 )
 from pipeline import clique_to_mis as cqm
 from pipeline import manet as manet_mod
-from pipeline.adiabatic_gap import GAP_MAX_ATOMS, compute_min_gap
+from pipeline.adiabatic_gap import GAP_MAX_ATOMS, compute_min_gap, compute_spectrum
+from pipeline.phase_diagram import PHASE_DIAGRAM_MAX_ATOMS, compute_phase_diagram
 from pipeline.classical_sa import SAConfig, simulated_annealing
 from pipeline.embedding import EmbedConfig, embed as embed_atoms
 from pipeline.measurement import measure
@@ -295,6 +302,57 @@ def schedule_gap(req: ScheduleGapRequest) -> ScheduleGapResponse:
         trace=GapTraceDTO(**trace.to_dict()) if trace is not None else None,
         n_atoms=n,
         max_atoms=GAP_MAX_ATOMS,
+    )
+
+
+@app.post("/api/schedule/spectrum", response_model=ScheduleSpectrumResponse)
+def schedule_spectrum(req: ScheduleSpectrumRequest) -> ScheduleSpectrumResponse:
+    """
+    Sample the k lowest eigenvalues of H(t) along the schedule.
+
+    Same shape as :func:`schedule_gap` but returns every low-lying energy
+    level — the UI plots them as separate curves so the avoided crossing
+    becomes visible. Refuses for systems >10 atoms (2^N matrix grows fast).
+    """
+    positions = [(p.x, p.y) for p in req.positions]
+    n = len(positions)
+    schedule = _schedule_from_dto(req.schedule)
+    trace = compute_spectrum(
+        positions, schedule, n_samples=req.n_samples, n_levels=req.n_levels
+    )
+    return ScheduleSpectrumResponse(
+        trace=SpectrumTraceDTO(**trace.to_dict()) if trace is not None else None,
+        n_atoms=n,
+        max_atoms=GAP_MAX_ATOMS,
+    )
+
+
+@app.post("/api/spectrum/phase_diagram", response_model=PhaseDiagramResponse)
+def spectrum_phase_diagram(req: PhaseDiagramRequest) -> PhaseDiagramResponse:
+    """
+    Sweep the (Ω, Δ) plane and return ⟨Σ n̂⟩ on the ground state at each
+    grid point. Stage 4 renders the result as a heatmap — distinct phases
+    (no-Rydberg, Z₂, MIS, fully excited) appear as colored regions.
+    """
+    if req.omega_min >= req.omega_max:
+        raise HTTPException(status_code=422, detail="omega_min must be < omega_max")
+    if req.delta_min >= req.delta_max:
+        raise HTTPException(status_code=422, detail="delta_min must be < delta_max")
+    positions = [(p.x, p.y) for p in req.positions]
+    n = len(positions)
+    diagram = compute_phase_diagram(
+        positions,
+        omega_min=req.omega_min,
+        omega_max=req.omega_max,
+        n_omega=req.n_omega,
+        delta_min=req.delta_min,
+        delta_max=req.delta_max,
+        n_delta=req.n_delta,
+    )
+    return PhaseDiagramResponse(
+        diagram=PhaseDiagramDTO(**diagram.to_dict()) if diagram is not None else None,
+        n_atoms=n,
+        max_atoms=PHASE_DIAGRAM_MAX_ATOMS,
     )
 
 

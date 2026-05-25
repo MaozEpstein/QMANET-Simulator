@@ -14,11 +14,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/rest";
 import {
+  buildBernienChain9Example,
   buildC4Example,
+  buildC7HardExample,
+  buildGrotzschExample,
+  buildHeawoodExample,
   buildK33Example,
+  buildK5Example,
+  buildKings3x3Example,
+  buildKings4x4Example,
+  buildManetRGG12Example,
+  buildMobiusKantorExample,
   buildPetersenExample,
   buildQ3Example,
   buildTriangularPrismExample,
+  buildTuran93Example,
 } from "../lib/examples";
 import {
   deleteSaved,
@@ -134,6 +144,111 @@ const EXAMPLES: Example[] = [
     n: 10,
     category: "starter",
     build: buildPetersenExample,
+  },
+  {
+    id: "k5",
+    name: "K₅ — קליק שלם",
+    englishName: "Complete graph K₅",
+    description:
+      "5 קודקודים, כל הצמדים מחוברים (10 קשתות). ω(G)=5, α(G)=1, המשלים ריק. בדיקת sanity קלאסית: הצינור צריך למצוא קליק בגודל 5.",
+    n: 5,
+    category: "starter",
+    build: buildK5Example,
+  },
+  {
+    id: "kings3x3",
+    name: "King's 3×3 (Ebadi 2022)",
+    englishName: "King's graph 3×3",
+    description:
+      "הבנצ'מרק הקנוני של Ebadi 2022 §6 ל-MIS על Rydberg array. 9 קודקודים על רשת 3×3, קשתות בין כל זוג שכנים במהלך מלך (8 כיוונים). α(G)=4 (פינות), ω(G)=4 (ריבוע 2×2).",
+    n: 9,
+    category: "paper",
+    paperRef: "Ebadi 2022 §6",
+    build: buildKings3x3Example,
+  },
+  {
+    id: "kings4x4",
+    name: "King's 4×4 (Ebadi 2022, Fig 4)",
+    englishName: "King's graph 4×4",
+    description:
+      "הרחבת ה-benchmark של Ebadi לרשת 4×4: 16 קודקודים, 42 קשתות, α(G)=4 (פינות), ω(G)=4 (כל 2×2). ⚠ 16 אטומים → Stage 5 (sesolve מלא) ו-Stage 4 spectrum/פאזות לא יעבדו. שאר הצינור כן.",
+    n: 16,
+    category: "paper",
+    paperRef: "Ebadi 2022 §6 (Fig 4)",
+    build: buildKings4x4Example,
+  },
+  {
+    id: "bernien-chain-9",
+    name: "Bernien 1D chain (N=9)",
+    englishName: "Bernien 2017 chain",
+    description:
+      "הניסוי שפתח את כל תחום ה-Rydberg array dynamics. שרשרת של 9 אטומים, blockade בין שכנים בלבד. עם preset bernien_2017_sweep ב-Stage 4, רואים את התפתחות הפאזה האנטי-פרומגנטית Z₂. α=5, ω=2.",
+    n: 9,
+    category: "paper",
+    paperRef: "Bernien 2017 · Nature 551",
+    build: buildBernienChain9Example,
+  },
+  {
+    id: "manet-rgg-12",
+    name: "MANET RGG (n=12, R=30)",
+    englishName: "Random Geometric Graph",
+    description:
+      "ההגדרה המוצהרת באבסטרקט הפרויקט: 12 קודקודים פזורים, קשתות = כל זוג במרחק ≤ 30µm. דמוי 'רשת מכשירים אורבנית' עם אזורים צפופים וקודקודים בודדים. α, ω בלתי-טריוויאליים — מחושבים ע״י הצינור.",
+    n: 12,
+    category: "paper",
+    paperRef: "MANET RGG · אבסטרקט הפרויקט",
+    build: buildManetRGG12Example,
+  },
+  {
+    id: "turan-9-3",
+    name: "Turán T(9,3)",
+    englishName: "Turán T(9,3) · K_{3,3,3}",
+    description:
+      "ה-extremal graph של תורת Turán: 3 חלוקות של 3 קודקודים, 27 קשתות בין-חלוקתיות בלבד. ω(G)=3 (אחד מכל חלוקה), α(G)=3 (חלוקה שלמה). המשלים = 3K₃ — שלושה משולשים נפרדים.",
+    n: 9,
+    category: "topology",
+    build: buildTuran93Example,
+  },
+  {
+    id: "grotzsch",
+    name: "Grötzsch (Mycielski(4))",
+    englishName: "Grötzsch graph",
+    description:
+      "11 קודקודים, triangle-free, אך χ(G)=4 — ההפרדה הקלאסית בין MaxClique לחציצה. ω(G)=2, α(G)=5. בנוי כ-C₅ פנימי + 5 twins + apex.",
+    n: 11,
+    category: "topology",
+    build: buildGrotzschExample,
+  },
+  {
+    id: "heawood",
+    name: "Heawood (cage 3,6)",
+    englishName: "Heawood graph",
+    description:
+      "14 קודקודים, 3-regular, ביפרטיט, ה-cage(3,6) הקטן ביותר. ה-incidence graph של מישור Fano. ω(G)=2, α(G)=7. ⚠ Stage 5 איטי בגלל גודל הגרף.",
+    n: 14,
+    category: "topology",
+    build: buildHeawoodExample,
+  },
+  {
+    id: "c7-hard",
+    name: "C₇ — מחזור אי-זוגי קשה",
+    englishName: "7-cycle (odd, hardness demo)",
+    description:
+      "7 קודקודים על מחומש (heptagon). אי-זוגי → אין כיסוי דו-צבעי מושלם. α=3, ω=2. HP ≈ 0.67 (14 IS בגודל 2 לעומת 7 בגודל 3) → מקרה אופייני שבו R הקוונטי יורד מתחת ל-1.0. מומלץ ל-benchmarking הוגן.",
+    n: 7,
+    category: "stress",
+    paperRef: "Ebadi 2022 §5 · hardness",
+    build: buildC7HardExample,
+  },
+  {
+    id: "mobius-kantor",
+    name: "Möbius-Kantor GP(8,3)",
+    englishName: "Möbius–Kantor graph",
+    description:
+      "16 קודקודים, 3-regular, ביפרטיט, vertex-transitive. שני אוקטוגונים קונצנטריים עם spokes; הפנימי עם chord(+3). מ-Foster census. ω(G)=2, α(G)=8. ⚠ גדול לסימולציה מלאה — Stage 5 לא יסיים בזמן סביר.",
+    n: 16,
+    category: "topology",
+    build: buildMobiusKantorExample,
   },
 ];
 
