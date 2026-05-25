@@ -1,30 +1,38 @@
 """
-MANET routing via the maximum-clique backbone.
+MANET routing via the maximum-clique backbone, with a BFS fallback for pairs
+the backbone alone cannot serve.
 
-The nodes selected by the adiabatic algorithm form a clique in G (the
-communication graph), which means every pair in the backbone is in direct
-range. Routing therefore reduces to:
+Three classes of route are emitted (field `via` on Route):
 
-  - If both endpoints are in the backbone:        direct 1-hop edge
-  - If one endpoint is in the backbone:           1 edge from non-backbone
-                                                  to its nearest backbone
-                                                  neighbor, then 1 backbone hop
-  - If both endpoints are outside the backbone:   2 boundary edges plus 1
-                                                  backbone hop between them
+  - ``direct``    : src and dst share an edge (1 hop). The backbone is irrelevant.
+  - ``backbone``  : the shortest path passes through at least one backbone node.
+                    These are the routes the quantum algorithm pays off on —
+                    short and stable through the clique core.
+  - ``fallback``  : the shortest path exists but uses *no* backbone intermediate.
+                    These are pairs the backbone failed to serve; we still
+                    deliver because a real MANET protocol would.
 
-A node is *covered* iff it is either in the backbone or has at least one
-backbone node as neighbor. Uncovered nodes cannot be routed through the
-backbone and need a fallback (multi-hop) protocol.
+This split lets us *quantify* how much the backbone contributes:
 
-This module computes the routing table for all (src, dst) pairs and reports
-coverage statistics.
+  - n_via_backbone / total          → fraction of routes the backbone served
+  - mean_hops_fallback / mean_hops_backbone
+                                   → how many more hops a backbone-less network
+                                     would have taken for the same network
+
+A pair is unreachable only if the underlying graph is disconnected between
+src and dst — i.e. when no protocol could deliver the packet.
 """
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
+from typing import Literal
 
 from .clique_to_mis import Graph, is_clique
+
+
+Via = Literal["direct", "backbone", "fallback"]
 
 
 @dataclass(frozen=True)
@@ -35,6 +43,12 @@ class Route:
     """Ordered list of nodes; empty if no route exists."""
 
     hops: int
+    via: Via
+    """How the path was found:
+      - "direct"   : single edge, backbone irrelevant
+      - "backbone" : at least one intermediate node is in the backbone
+      - "fallback" : intermediate nodes are all outside the backbone
+    """
 
     @property
     def is_reachable(self) -> bool:
@@ -46,6 +60,7 @@ class Route:
             "dst": self.dst,
             "path": list(self.path),
             "hops": self.hops,
+            "via": self.via,
         }
 
 
@@ -54,7 +69,7 @@ class RoutingResult:
     backbone: tuple[int, ...]
     is_clique: bool
     covered_nodes: tuple[int, ...]
-    """Nodes that can be reached via the backbone (including backbone itself)."""
+    """Nodes that can be reached via the backbone in ≤1 hop (backbone ∪ N(backbone))."""
 
     coverage_fraction: float
     routes: tuple[Route, ...]
@@ -74,6 +89,36 @@ class RoutingResult:
         good = [r.hops for r in self.routes if r.is_reachable]
         return max(good) if good else 0
 
+    # Per-via breakdown — quantifies what the backbone contributed.
+
+    @property
+    def n_via_direct(self) -> int:
+        return sum(1 for r in self.routes if r.is_reachable and r.via == "direct")
+
+    @property
+    def n_via_backbone(self) -> int:
+        return sum(1 for r in self.routes if r.is_reachable and r.via == "backbone")
+
+    @property
+    def n_via_fallback(self) -> int:
+        return sum(1 for r in self.routes if r.is_reachable and r.via == "fallback")
+
+    def _mean_hops_for(self, via: Via) -> float:
+        good = [r.hops for r in self.routes if r.is_reachable and r.via == via and r.hops > 0]
+        return sum(good) / len(good) if good else 0.0
+
+    @property
+    def mean_hops_direct(self) -> float:
+        return self._mean_hops_for("direct")
+
+    @property
+    def mean_hops_backbone(self) -> float:
+        return self._mean_hops_for("backbone")
+
+    @property
+    def mean_hops_fallback(self) -> float:
+        return self._mean_hops_for("fallback")
+
     def to_dict(self) -> dict:
         return {
             "backbone": list(self.backbone),
@@ -83,6 +128,12 @@ class RoutingResult:
             "n_reachable_pairs": self.n_reachable_pairs,
             "mean_hops": self.mean_hops,
             "max_hops": self.max_hops,
+            "n_via_direct": self.n_via_direct,
+            "n_via_backbone": self.n_via_backbone,
+            "n_via_fallback": self.n_via_fallback,
+            "mean_hops_direct": self.mean_hops_direct,
+            "mean_hops_backbone": self.mean_hops_backbone,
+            "mean_hops_fallback": self.mean_hops_fallback,
             "routes": [r.to_dict() for r in self.routes],
         }
 
@@ -95,14 +146,42 @@ def _adjacency_sets(graph: Graph) -> list[set[int]]:
     return adj
 
 
-def _nearest_backbone_neighbor(
-    node: int, adj: list[set[int]], backbone_set: set[int]
-) -> int | None:
-    """Return any backbone node directly adjacent to `node`, or None."""
-    common = adj[node] & backbone_set
-    if not common:
-        return None
-    return min(common)  # deterministic tie-break by id
+def _bfs_shortest_path(
+    src: int, dst: int, adj: list[set[int]]
+) -> tuple[int, ...]:
+    """Return the shortest path from src to dst as a tuple of nodes, or
+    () if no path exists. Assumes 0 ≤ src,dst < len(adj)."""
+    if src == dst:
+        return (src,)
+    parent: dict[int, int] = {src: src}
+    queue: deque[int] = deque([src])
+    while queue:
+        u = queue.popleft()
+        if u == dst:
+            break
+        for v in adj[u]:
+            if v not in parent:
+                parent[v] = u
+                queue.append(v)
+    if dst not in parent:
+        return ()
+    # Reconstruct path src → … → dst.
+    rev = [dst]
+    while rev[-1] != src:
+        rev.append(parent[rev[-1]])
+    rev.reverse()
+    return tuple(rev)
+
+
+def _classify(path: tuple[int, ...], backbone_set: set[int]) -> Via:
+    """Decide how a BFS-shortest path used (or didn't use) the backbone."""
+    if len(path) <= 2:
+        # 0 hops (src==dst) or 1 hop (direct edge) — backbone irrelevant.
+        return "direct"
+    intermediates = path[1:-1]
+    if any(node in backbone_set for node in intermediates):
+        return "backbone"
+    return "fallback"
 
 
 def compute_route(
@@ -111,51 +190,31 @@ def compute_route(
     adj: list[set[int]],
     backbone_set: set[int],
 ) -> Route:
-    """Return the (src, dst) route through the backbone, or empty if unreachable."""
+    """Return the shortest src→dst route (BFS), classified by how the
+    backbone was (or wasn't) used. Returns hops=0 and via="direct" only
+    when src==dst or no path exists in G."""
     if src == dst:
-        return Route(src=src, dst=dst, path=(src,), hops=0)
+        return Route(src=src, dst=dst, path=(src,), hops=0, via="direct")
 
-    # Direct edge (no backbone needed)
-    if dst in adj[src]:
-        return Route(src=src, dst=dst, path=(src, dst), hops=1)
+    path = _bfs_shortest_path(src, dst, adj)
+    if not path:
+        return Route(src=src, dst=dst, path=(), hops=0, via="direct")
 
-    src_entry: int | None
-    dst_exit: int | None
-
-    if src in backbone_set:
-        src_entry = src
-    else:
-        src_entry = _nearest_backbone_neighbor(src, adj, backbone_set)
-
-    if dst in backbone_set:
-        dst_exit = dst
-    else:
-        dst_exit = _nearest_backbone_neighbor(dst, adj, backbone_set)
-
-    if src_entry is None or dst_exit is None:
-        # Either endpoint not covered → cannot route via this backbone
-        return Route(src=src, dst=dst, path=(), hops=0)
-
-    # Build the path: [src?] -> src_entry -> [backbone hop -> dst_exit?] -> [dst?]
-    path: list[int] = []
-    if src != src_entry:
-        path.append(src)
-    path.append(src_entry)
-    if dst_exit != src_entry:
-        path.append(dst_exit)
-    if dst not in (src_entry, dst_exit):
-        path.append(dst)
-
-    return Route(src=src, dst=dst, path=tuple(path), hops=len(path) - 1)
+    return Route(
+        src=src,
+        dst=dst,
+        path=path,
+        hops=len(path) - 1,
+        via=_classify(path, backbone_set),
+    )
 
 
 def build_routing_table(graph: Graph, backbone: list[int]) -> RoutingResult:
-    """Compute every ordered route and aggregate coverage stats."""
+    """Compute every ordered route and aggregate coverage + via stats."""
     n = graph.n_nodes
     backbone_sorted = tuple(sorted(set(backbone)))
     backbone_set = set(backbone_sorted)
 
-    # Reject anything out of range
     for b in backbone_set:
         if not (0 <= b < n):
             raise ValueError(f"backbone vertex {b} out of range [0, {n})")
@@ -163,13 +222,15 @@ def build_routing_table(graph: Graph, backbone: list[int]) -> RoutingResult:
     adj = _adjacency_sets(graph)
     is_back_clique = is_clique(graph, list(backbone_sorted)) if len(backbone_set) > 1 else True
 
+    # Coverage stays "served by backbone in ≤1 hop" — the unchanged metric of
+    # what the clique alone reaches. Fallback routes don't expand coverage;
+    # they just demonstrate the network is otherwise functional.
     covered: set[int] = set(backbone_set)
     for v in range(n):
         if v in covered:
             continue
         if adj[v] & backbone_set:
             covered.add(v)
-
     coverage = len(covered) / n if n > 0 else 0.0
 
     routes: list[Route] = []

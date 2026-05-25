@@ -152,8 +152,10 @@ print(submit["submitted"], submit["message"])
 
 - **`mean_final_size`** — הגודל הממוצע של ה-IS שיצא מ-post-processing על כל ה-shots. ב-Ebadi2022 זה ~57.5; אצלנו (על גרף קטן) זה יהיה קרוב ל-α(G) המדויק.
 - **`best_final_size`** — ה-IS הכי גדול שראינו ב-200 shots.
-- **`coverage_fraction`** — בשלב 8 (Routing): שבר המכשירים שהם או בה-backbone או שכנים שלו. ב-MANET דליל זה < 100% וצריך פרוטוקול fallback.
+- **`coverage_fraction`** — בשלב 8 (Routing): שבר המכשירים שהם או בה-backbone או שכנים שלו. ב-MANET דליל זה < 100% — אבל המסלולים שאינם מכוסים מנותבים דרך BFS fallback (ראה למטה).
 - **`is_clique` ב-RoutingResponse** — חייב להיות `true`. אם לא, יש באג ב-pipeline (ה-MIS על Ḡ לא תאם לקליק ב-G).
+- **`n_via_direct / n_via_backbone / n_via_fallback`** — כל מסלול מסווג לפי איך הוא נמצא: `direct` (קשת ישירה), `backbone` (לפחות קודקוד ביניים אחד נמצא ב-clique הקוונטי), או `fallback` (BFS shortest-path בלי שימוש בbackbone). זה ה**כימות המדויק** של הערך שהקליק הקוונטי הוסיף — `n_via_backbone / total` הוא שבר המסלולים שה-backbone שירת. `n_via_fallback > 0` משמעו שגרף מסוים *לא* מתאים לגישה הזו (טריאנגל-פרי, sparse, וכו').
+- **`mean_hops_backbone` vs `mean_hops_fallback`** — אם הראשון נמוך משמעותית, ה-backbone הקוונטי מספק קיצור מסלולים אמיתי. השוואה זו היא ה-"backbone hop savings": `1 - mean_hops_backbone / mean_hops_fallback`. **זה ה-payoff המוחשי** של הקליק.
 
 ## הקבצים הקריטיים
 

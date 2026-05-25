@@ -10,7 +10,13 @@ import type { SimulateRequest, SimulationFrameDTO } from "./rest";
 
 export type EvolutionMessage =
   | { type: "frame"; frame: SimulationFrameDTO }
-  | { type: "done"; n_atoms: number; duration_us: number; final_t_us: number }
+  | {
+      type: "done";
+      n_atoms: number;
+      duration_us: number;
+      final_t_us: number;
+      final_bitstring_probs?: Record<string, number>;
+    }
   | { type: "error"; message: string };
 
 export interface EvolutionHandle {
@@ -23,7 +29,12 @@ export function streamSimulation(
   request: SimulateRequest,
   callbacks: {
     onFrame?: (frame: SimulationFrameDTO) => void;
-    onDone?: (info: { n_atoms: number; duration_us: number; final_t_us: number }) => void;
+    onDone?: (info: {
+      n_atoms: number;
+      duration_us: number;
+      final_t_us: number;
+      final_bitstring_probs?: Record<string, number>;
+    }) => void;
     onError?: (msg: string) => void;
     onOpen?: () => void;
   },

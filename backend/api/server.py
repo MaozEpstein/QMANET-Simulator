@@ -488,6 +488,12 @@ def routing_build(req: RoutingRequest) -> RoutingResponse:
         n_reachable_pairs=res.n_reachable_pairs,
         mean_hops=res.mean_hops,
         max_hops=res.max_hops,
+        n_via_direct=res.n_via_direct,
+        n_via_backbone=res.n_via_backbone,
+        n_via_fallback=res.n_via_fallback,
+        mean_hops_direct=res.mean_hops_direct,
+        mean_hops_backbone=res.mean_hops_backbone,
+        mean_hops_fallback=res.mean_hops_fallback,
         routes=[RouteDTO(**r.to_dict()) for r in res.routes],
     )
 
@@ -522,6 +528,10 @@ async def simulate_ws(websocket: WebSocket) -> None:
 
     queue: asyncio.Queue[SimulationFrame | None] = asyncio.Queue(maxsize=8)
     loop = asyncio.get_running_loop()
+    # The full SimulationResult is captured by the worker so we can stream
+    # `final_bitstring_probs` in the "done" message — that lets Stages 6 & 7
+    # sample without re-running sesolve.
+    sim_result_holder: dict[str, SimulationResult | None] = {"result": None}
 
     def on_frame(frame: SimulationFrame) -> None:
         # Called from the simulator's worker thread. Schedule put() on the loop.
@@ -531,7 +541,9 @@ async def simulate_ws(websocket: WebSocket) -> None:
         try:
             schedule = _schedule_from_dto(req.schedule)
             positions = [(p.x, p.y) for p in req.positions]
-            simulate(schedule, positions, n_frames=req.n_frames, on_frame=on_frame)
+            sim_result_holder["result"] = simulate(
+                schedule, positions, n_frames=req.n_frames, on_frame=on_frame
+            )
         finally:
             asyncio.run_coroutine_threadsafe(queue.put(None), loop)
 
@@ -549,12 +561,16 @@ async def simulate_ws(websocket: WebSocket) -> None:
             await websocket.send_json(
                 {"type": "frame", "frame": _frame_to_dto(frame).model_dump()}
             )
+        final_probs: dict[str, float] = {}
+        if sim_result_holder["result"] is not None:
+            final_probs = dict(sim_result_holder["result"].final_bitstring_probs)
         await websocket.send_json(
             {
                 "type": "done",
                 "n_atoms": n_atoms,
                 "duration_us": duration,
                 "final_t_us": final_state_frame.t_us if final_state_frame else 0.0,
+                "final_bitstring_probs": final_probs,
             }
         )
     except WebSocketDisconnect:

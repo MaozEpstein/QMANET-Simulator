@@ -20,6 +20,7 @@ export function Stage5_Evolution() {
     pushSimulationFrame,
     setSimulationStatus,
     setCurrentFrameIndex,
+    setFinalBitstringProbs,
   } = usePipeline();
   const [nFrames, setNFrames] = useState(80);
   const [autoPlay, setAutoPlay] = useState(true);
@@ -38,20 +39,35 @@ export function Stage5_Evolution() {
       },
       {
         onFrame: (f) => pushSimulationFrame(f),
-        onDone: () => setSimulationStatus("done"),
+        onDone: (info) => {
+          if (info.final_bitstring_probs) {
+            setFinalBitstringProbs(info.final_bitstring_probs);
+          }
+          setSimulationStatus("done");
+        },
         onError: (msg) => setSimulationStatus("error", msg),
       },
     );
-  }, [embed, schedule, nFrames, resetSimulation, pushSimulationFrame, setSimulationStatus]);
+  }, [
+    embed,
+    schedule,
+    nFrames,
+    resetSimulation,
+    pushSimulationFrame,
+    setSimulationStatus,
+    setFinalBitstringProbs,
+  ]);
 
   useEffect(() => {
-    // Start a fresh stream when this stage mounts (or when atoms/schedule changed materially)
-    startStream();
+    // Cleanup any in-flight stream on unmount. We deliberately do NOT
+    // auto-start a fresh stream — for stiff geometries (dense embedding,
+    // strong blockade) QuTiP can take tens of seconds even for N=10, and
+    // we don't want the page to freeze just because the user navigated
+    // here. They click "↻ הרץ אבולוציה" when ready.
     return () => {
       handleRef.current?.close();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [embed?.n_atoms, schedule?.schedule.duration]);
+  }, []);
 
   // Autoplay: after stream finishes, march the cursor forward at ~30fps
   useEffect(() => {

@@ -12,6 +12,9 @@ export interface SimulationState {
   status: "idle" | "running" | "done" | "error";
   errorMessage?: string;
   currentFrameIndex: number;
+  /** Populated once the simulation finishes — lets Stages 6 & 7 sample
+   *  without re-running the (potentially expensive) sesolve. */
+  finalBitstringProbs?: Record<string, number>;
 }
 
 export const STAGES = [
@@ -46,8 +49,10 @@ interface PipelineState {
   simulation: SimulationState;
   resetSimulation: () => void;
   pushSimulationFrame: (f: SimulationFrameDTO) => void;
+  setSimulationFrames: (frames: SimulationFrameDTO[]) => void;
   setSimulationStatus: (s: SimulationState["status"], msg?: string) => void;
   setCurrentFrameIndex: (i: number) => void;
+  setFinalBitstringProbs: (probs: Record<string, number> | undefined) => void;
 }
 
 const EMPTY_SIM: SimulationState = {
@@ -77,6 +82,14 @@ export const usePipeline = create<PipelineState>((set) => ({
         currentFrameIndex: state.simulation.frames.length, // points at the new frame
       },
     })),
+  setSimulationFrames: (frames) =>
+    set((state) => ({
+      simulation: {
+        ...state.simulation,
+        frames,
+        currentFrameIndex: Math.max(0, frames.length - 1),
+      },
+    })),
   setSimulationStatus: (status, msg) =>
     set((state) => ({
       simulation: { ...state.simulation, status, errorMessage: msg },
@@ -90,5 +103,9 @@ export const usePipeline = create<PipelineState>((set) => ({
           Math.min(i, state.simulation.frames.length - 1),
         ),
       },
+    })),
+  setFinalBitstringProbs: (probs) =>
+    set((state) => ({
+      simulation: { ...state.simulation, finalBitstringProbs: probs },
     })),
 }));

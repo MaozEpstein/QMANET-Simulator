@@ -18,7 +18,7 @@ import { palette } from "../theme/palette";
 type Phase = "raw" | "fixed" | "final";
 
 export function Stage7_PostProcess() {
-  const { embed, schedule, mis } = usePipeline();
+  const { embed, schedule, mis, simulation, setFinalBitstringProbs } = usePipeline();
   const [measurement, setMeasurement] = useState<MeasureResponse | null>(null);
   const [batch, setBatch] = useState<PostProcessBatchResponse | null>(null);
   const [sa, setSa] = useState<SAResponse | null>(null);
@@ -29,37 +29,51 @@ export function Stage7_PostProcess() {
 
   const targetGraph: GraphDTO | null = mis?.complement ?? null;
 
-  const runAll = useCallback(async () => {
-    if (!embed || !schedule || !targetGraph) return;
-    setLoading(true);
-    setErr(null);
-    try {
-      const sim = await api.simulate({
-        positions: embed.positions,
-        schedule: schedule.schedule,
-        n_frames: 15,
-      });
-      const m = await api.measure({
-        bitstring_probs: sim.final_bitstring_probs,
-        n_shots: 200,
-        apply_noise: true,
-        seed: 42,
-      });
-      setMeasurement(m);
-      const b = await api.postprocessBatch(m.bitstrings, targetGraph, 0);
-      setBatch(b);
-      const s = await api.classicalSA(targetGraph, { n_sweeps: 200, seed: 7 });
-      setSa(s);
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [embed, schedule, targetGraph]);
+  const probs = simulation.finalBitstringProbs;
 
+  const runAll = useCallback(
+    async ({ allowSimulate }: { allowSimulate: boolean }) => {
+      if (!embed || !schedule || !targetGraph) return;
+      setLoading(true);
+      setErr(null);
+      try {
+        let p = probs;
+        if (!p) {
+          if (!allowSimulate) return;
+          const sim = await api.simulate({
+            positions: embed.positions,
+            schedule: schedule.schedule,
+            n_frames: 15,
+          });
+          p = sim.final_bitstring_probs;
+          setFinalBitstringProbs(p);
+        }
+        const m = await api.measure({
+          bitstring_probs: p,
+          n_shots: 200,
+          apply_noise: true,
+          seed: 42,
+        });
+        setMeasurement(m);
+        const b = await api.postprocessBatch(m.bitstrings, targetGraph, 0);
+        setBatch(b);
+        const s = await api.classicalSA(targetGraph, { n_sweeps: 200, seed: 7 });
+        setSa(s);
+      } catch (e) {
+        setErr((e as Error).message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [embed, schedule, targetGraph, probs, setFinalBitstringProbs],
+  );
+
+  // Auto-run on mount only if Stage 5 has already produced the distribution.
+  // Otherwise wait for the user to authorise the heavy sesolve via the banner.
   useEffect(() => {
-    runAll();
-  }, [runAll]);
+    if (probs) runAll({ allowSimulate: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [probs, targetGraph]);
 
   const current: PostProcessResultDTO | undefined = batch?.results[shotIdx];
 
@@ -106,6 +120,46 @@ export function Stage7_PostProcess() {
       transition={{ duration: 0.4 }}
       style={{ display: "grid", gap: 16 }}
     >
+      {!probs && (
+        <Panel title="שלב 7 · Post-processing — ממתין לסימולציה">
+          <div
+            role="status"
+            style={{
+              padding: "12px 14px",
+              borderRadius: 8,
+              background: "rgba(255, 181, 71, 0.08)",
+              border: `1px solid ${palette.warn}`,
+              color: palette.warn,
+              fontSize: 12.5,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <span>
+              שלב 5 (אבולוציה) טרם רץ — Post-processing מצריך shots קוונטיים. רוץ את שלב 5 קודם, או חשב מקומית עכשיו.
+            </span>
+            <button
+              onClick={() => runAll({ allowSimulate: true })}
+              disabled={loading}
+              style={{
+                padding: "6px 14px",
+                background: palette.warn,
+                color: "#000",
+                border: "none",
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: loading ? "wait" : "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {loading ? "מחשב…" : "חשב מקומית"}
+            </button>
+          </div>
+        </Panel>
+      )}
       <Panel
         title="שלב 7 · Post-processing — greedy fix → extension"
         subtitle="כל shot עובר את אלגוריתם §6 של whitepaper: מסירים violations, מרחיבים ל-mIS"
@@ -143,7 +197,7 @@ export function Stage7_PostProcess() {
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <button
-              onClick={runAll}
+              onClick={() => runAll({ allowSimulate: true })}
               disabled={loading}
               style={{
                 padding: "10px 16px",

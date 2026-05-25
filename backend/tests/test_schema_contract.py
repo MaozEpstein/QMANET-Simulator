@@ -298,6 +298,12 @@ ROUTING_RESP_SCHEMA = {
     "n_reachable_pairs": int,
     "mean_hops": float,
     "max_hops": int,
+    "n_via_direct": int,
+    "n_via_backbone": int,
+    "n_via_fallback": int,
+    "mean_hops_direct": float,
+    "mean_hops_backbone": float,
+    "mean_hops_fallback": float,
     "routes": list,
 }
 
@@ -306,6 +312,7 @@ ROUTE_SCHEMA = {
     "dst": int,
     "path": list,
     "hops": int,
+    "via": str,
 }
 
 

@@ -22,14 +22,22 @@ describe("RoutingView", () => {
     const { container } = render(
       <RoutingView nodes={NODES} edges={EDGES} backbone={[0, 1, 2]} />,
     );
-    expect(container.querySelectorAll("svg line").length).toBe(EDGES.length);
+    // Scope to the main routing svg — the legend has its own tiny SVGs we ignore.
+    const mainSvg = container.querySelector('svg[aria-label="MANET routing view"]')!;
+    expect(mainSvg.querySelectorAll("line").length).toBe(EDGES.length);
     // node circles (one per node inside g[transform])
-    const nodeCircles = container.querySelectorAll("g[transform] circle");
+    const nodeCircles = mainSvg.querySelectorAll("g[transform] circle");
     expect(nodeCircles.length).toBe(NODES.length);
   });
 
-  it("draws an active path in cyan when activeRoute is supplied", () => {
-    const activeRoute: RouteDTO = { src: 3, dst: 0, path: [3, 1, 0], hops: 2 };
+  it("colors the active path by via (backbone → purple glow)", () => {
+    const activeRoute: RouteDTO = {
+      src: 3,
+      dst: 0,
+      path: [3, 1, 0],
+      hops: 2,
+      via: "backbone",
+    };
     const { container } = render(
       <RoutingView
         nodes={NODES}
@@ -38,11 +46,35 @@ describe("RoutingView", () => {
         activeRoute={activeRoute}
       />,
     );
-    // Some edges should be drawn with the atomGround color (cyan)
-    const cyanLines = Array.from(container.querySelectorAll("line")).filter(
-      (l) => l.getAttribute("stroke") === "#3ed3ff",
+    const mainSvg = container.querySelector('svg[aria-label="MANET routing view"]')!;
+    // backbone via → queraPurpleGlow (#b388ff)
+    const purpleLines = Array.from(mainSvg.querySelectorAll("line")).filter(
+      (l) => l.getAttribute("stroke") === "#b388ff",
     );
-    expect(cyanLines.length).toBe(2); // path 3→1→0 has 2 segments
+    // 2 active edges + any backbone edges among the rendered edges, both color purple
+    expect(purpleLines.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("colors the active path yellow + dashed when via=fallback", () => {
+    // Backbone={1}; path 0→2→3 uses non-backbone intermediate (2), so fallback.
+    const activeRoute: RouteDTO = {
+      src: 0,
+      dst: 3,
+      path: [0, 2, 3],
+      hops: 2,
+      via: "fallback",
+    };
+    const { container } = render(
+      <RoutingView nodes={NODES} edges={EDGES} backbone={[1]} activeRoute={activeRoute} />,
+    );
+    const mainSvg = container.querySelector('svg[aria-label="MANET routing view"]')!;
+    // fallback via → warn (#ffb547)
+    const yellowLines = Array.from(mainSvg.querySelectorAll("line")).filter(
+      (l) => l.getAttribute("stroke") === "#ffb547",
+    );
+    expect(yellowLines.length).toBe(2);
+    // and dashed
+    expect(yellowLines[0].getAttribute("stroke-dasharray")).toBe("6 4");
   });
 
   it("draws the packet only when there is an active route", () => {
@@ -56,7 +88,7 @@ describe("RoutingView", () => {
         nodes={NODES}
         edges={EDGES}
         backbone={[0, 1, 2]}
-        activeRoute={{ src: 3, dst: 0, path: [3, 1, 0], hops: 2 }}
+        activeRoute={{ src: 3, dst: 0, path: [3, 1, 0], hops: 2, via: "backbone" }}
       />,
     );
     expect(container.querySelector('[data-testid="packet"]')).toBeInTheDocument();
@@ -90,7 +122,7 @@ describe("RoutingView", () => {
         nodes={NODES}
         edges={EDGES}
         backbone={[0, 1]}
-        activeRoute={{ src: 2, dst: 3, path: [], hops: 0 }}
+        activeRoute={{ src: 2, dst: 3, path: [], hops: 0, via: "direct" }}
       />,
     );
     expect(container.querySelector("svg")).toBeInTheDocument();

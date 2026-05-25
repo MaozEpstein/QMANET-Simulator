@@ -11,7 +11,19 @@
 
 import { useEffect, useState } from "react";
 import { palette } from "../theme/palette";
-import type { NodePos, RouteDTO } from "../api/rest";
+import type { NodePos, RouteDTO, RouteVia } from "../api/rest";
+
+/** Color the active route by *how* it was found. The choice maps cleanly to
+ *  the metrics shown in Stage 8 so the user can read the visualization in
+ *  the same language as the side panel:
+ *    direct   → ok (cyan/green)  — single edge, backbone irrelevant
+ *    backbone → QuEra purple glow — quantum-found clique paid off
+ *    fallback → warn yellow       — backbone failed; BFS recovered     */
+export function viaColor(via: RouteVia): string {
+  if (via === "backbone") return palette.queraPurpleGlow;
+  if (via === "fallback") return palette.warn;
+  return palette.ok;
+}
 
 interface Props {
   nodes: NodePos[];
@@ -141,6 +153,8 @@ export function RoutingView({
           const key = `${Math.min(u, v)}-${Math.max(u, v)}`;
           const isBack = backboneEdges.has(key);
           const isActive = activePathEdges.has(key);
+          const activeStroke = activeRoute ? viaColor(activeRoute.via) : palette.ok;
+          const activeDashed = activeRoute?.via === "fallback";
           return (
             <line
               key={`e-${i}`}
@@ -150,13 +164,14 @@ export function RoutingView({
               y2={toY(b)}
               stroke={
                 isActive
-                  ? palette.atomGround
+                  ? activeStroke
                   : isBack
                     ? palette.queraPurpleGlow
                     : palette.textMuted
               }
               strokeOpacity={isActive ? 0.95 : isBack ? 0.85 : 0.3}
               strokeWidth={isActive ? 3 : isBack ? 2.2 : 0.9}
+              strokeDasharray={isActive && activeDashed ? "6 4" : undefined}
             />
           );
         })}
@@ -211,12 +226,47 @@ export function RoutingView({
             cx={packetPos.x}
             cy={packetPos.y}
             r={6}
-            fill={palette.ok}
+            fill={activeRoute ? viaColor(activeRoute.via) : palette.ok}
             filter="url(#packet-glow)"
             data-testid="packet"
           />
         )}
       </svg>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 16,
+          marginTop: 8,
+          fontSize: 11,
+          color: palette.textMuted,
+        }}
+      >
+        <LegendItem color={palette.textMuted} label="edge" dashed={false} />
+        <LegendItem color={palette.queraPurpleGlow} label="backbone (clique)" dashed={false} />
+        <LegendItem color={palette.ok} label="active · direct" dashed={false} />
+        <LegendItem color={palette.queraPurpleGlow} label="active · via backbone" dashed={false} />
+        <LegendItem color={palette.warn} label="active · fallback (BFS)" dashed={true} />
+      </div>
     </div>
+  );
+}
+
+function LegendItem({ color, label, dashed }: { color: string; label: string; dashed: boolean }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <svg width="22" height="8" aria-hidden="true">
+        <line
+          x1="0"
+          y1="4"
+          x2="22"
+          y2="4"
+          stroke={color}
+          strokeWidth="2.5"
+          strokeDasharray={dashed ? "5 3" : undefined}
+        />
+      </svg>
+      <span>{label}</span>
+    </span>
   );
 }

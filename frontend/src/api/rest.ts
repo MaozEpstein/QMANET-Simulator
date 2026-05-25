@@ -218,11 +218,14 @@ export interface SAResponse {
 // Phase 6 — MANET routing
 // --------------------------------------------------------------------------- //
 
+export type RouteVia = "direct" | "backbone" | "fallback";
+
 export interface RouteDTO {
   src: number;
   dst: number;
   path: number[];
   hops: number;
+  via: RouteVia;
 }
 
 export interface RoutingResponse {
@@ -233,6 +236,12 @@ export interface RoutingResponse {
   n_reachable_pairs: number;
   mean_hops: number;
   max_hops: number;
+  n_via_direct: number;
+  n_via_backbone: number;
+  n_via_fallback: number;
+  mean_hops_direct: number;
+  mean_hops_backbone: number;
+  mean_hops_fallback: number;
   routes: RouteDTO[];
 }
 

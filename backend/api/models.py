@@ -234,6 +234,9 @@ class RouteDTO(BaseModel):
     dst: int
     path: list[int]
     hops: int
+    via: str
+    """How the path was found: "direct" (1 edge), "backbone" (≥1 intermediate
+    in the clique), or "fallback" (intermediates outside the backbone)."""
 
 
 class RoutingResponse(BaseModel):
@@ -244,6 +247,13 @@ class RoutingResponse(BaseModel):
     n_reachable_pairs: int
     mean_hops: float
     max_hops: int
+    # Per-via breakdown — quantifies what the backbone contributed.
+    n_via_direct: int
+    n_via_backbone: int
+    n_via_fallback: int
+    mean_hops_direct: float
+    mean_hops_backbone: float
+    mean_hops_fallback: float
     routes: list[RouteDTO]
 
 

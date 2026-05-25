@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type AquilaSpec } from "./api/rest";
 import { StageErrorBoundary } from "./components/StageErrorBoundary";
+import { ExamplesButton } from "./components/ExamplesButton";
+import { StagesInfoButton } from "./components/StagesInfoButton";
 import { Stage1_MANET } from "./stages/Stage1_MANET";
 import { Stage2_Complement } from "./stages/Stage2_Complement";
 import { Stage3_Embedding } from "./stages/Stage3_Embedding";
@@ -168,8 +170,11 @@ function Header() {
           </div>
         </div>
       </div>
-      <div style={{ fontSize: 12, color: palette.textSecondary }} dir="ltr">
-        v0.1.0 · Bloqade + QuTiP
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <ExamplesButton />
+        <div style={{ fontSize: 12, color: palette.textSecondary }} dir="ltr">
+          v0.1.0 · Bloqade + QuTiP
+        </div>
       </div>
     </header>
   );
@@ -186,6 +191,7 @@ function StageStepper({
     <nav
       style={{
         display: "flex",
+        alignItems: "center",
         gap: 4,
         padding: "10px 28px",
         background: palette.bgPanelElevated,
@@ -221,6 +227,7 @@ function StageStepper({
           </button>
         );
       })}
+      <StagesInfoButton />
     </nav>
   );
 }

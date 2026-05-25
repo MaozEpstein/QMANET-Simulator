@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "../api/rest";
-import type { MeasureResponse, SimulateResponse } from "../api/rest";
+import type { MeasureResponse } from "../api/rest";
 import { AtomArray2D } from "../components/AtomArray2D";
 import { BitstringHistogram } from "../components/BitstringHistogram";
 import { Panel } from "../components/Panel";
@@ -10,20 +10,23 @@ import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
 
 export function Stage6_Measurement() {
-  const { embed, schedule, simulation } = usePipeline();
+  const { embed, schedule, simulation, setFinalBitstringProbs } = usePipeline();
   const [nShots, setNShots] = useState(200);
   const [applyNoise, setApplyNoise] = useState(true);
   const [seed, setSeed] = useState(42);
   const [measurement, setMeasurement] = useState<MeasureResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [simResp, setSimResp] = useState<SimulateResponse | null>(null);
 
-  // Compute the bitstring distribution synchronously via /api/simulate/run
-  // (we ran the WS streamer in Phase 4, but the WS doesn't carry the final
-  // bitstring distribution; the /run endpoint does).
-  const runDistribution = useCallback(async () => {
+  // If Stage 5 already ran, its final bitstring distribution is in the store
+  // — measurement proceeds automatically. If not, we *do not* auto-fire a
+  // sesolve here: that's the heavy step, and we want the user to authorise
+  // it explicitly (either via Stage 5 or the "compute now" button below).
+  const probs = simulation.finalBitstringProbs;
+  const [computingProbs, setComputingProbs] = useState(false);
+  const computeProbsNow = useCallback(async () => {
     if (!embed || !schedule) return;
+    setComputingProbs(true);
     setErr(null);
     try {
       const res = await api.simulate({
@@ -31,23 +34,21 @@ export function Stage6_Measurement() {
         schedule: schedule.schedule,
         n_frames: 20,
       });
-      setSimResp(res);
+      setFinalBitstringProbs(res.final_bitstring_probs);
     } catch (e) {
       setErr((e as Error).message);
+    } finally {
+      setComputingProbs(false);
     }
-  }, [embed, schedule]);
-
-  useEffect(() => {
-    runDistribution();
-  }, [runDistribution]);
+  }, [embed, schedule, setFinalBitstringProbs]);
 
   const sample = useCallback(async () => {
-    if (!simResp) return;
+    if (!probs) return;
     setLoading(true);
     setErr(null);
     try {
       const m = await api.measure({
-        bitstring_probs: simResp.final_bitstring_probs,
+        bitstring_probs: probs,
         n_shots: nShots,
         apply_noise: applyNoise,
         seed,
@@ -58,12 +59,12 @@ export function Stage6_Measurement() {
     } finally {
       setLoading(false);
     }
-  }, [simResp, nShots, applyNoise, seed]);
+  }, [probs, nShots, applyNoise, seed]);
 
   useEffect(() => {
-    if (simResp) sample();
+    if (probs) sample();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [simResp]);
+  }, [probs]);
 
   // Shot replay: cycle through bitstrings as if they came in one at a time
   const [shotIndex, setShotIndex] = useState(0);
@@ -103,6 +104,45 @@ export function Stage6_Measurement() {
         title="שלב 6 · מדידת shots"
         subtitle="כל shot מתפרק לסיביות מ-Aquila. רעש זיהוי + fill מוחל לפי whitepaper §1.4."
       >
+        {!probs && (
+          <div
+            role="status"
+            style={{
+              marginBottom: 14,
+              padding: "12px 14px",
+              borderRadius: 8,
+              background: "rgba(255, 181, 71, 0.08)",
+              border: `1px solid ${palette.warn}`,
+              color: palette.warn,
+              fontSize: 12.5,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <span>
+              שלב 5 (אבולוציה) טרם רץ — אין התפלגות bitstrings למדוד. רוץ את שלב 5 קודם, או חשב מקומית עכשיו.
+            </span>
+            <button
+              onClick={computeProbsNow}
+              disabled={computingProbs}
+              style={{
+                padding: "6px 14px",
+                background: palette.warn,
+                color: "#000",
+                border: "none",
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: computingProbs ? "wait" : "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {computingProbs ? "מחשב…" : "חשב מקומית"}
+            </button>
+          </div>
+        )}
         <div
           style={{
             display: "grid",
@@ -141,7 +181,7 @@ export function Stage6_Measurement() {
             </label>
             <button
               onClick={sample}
-              disabled={loading || !simResp}
+              disabled={loading || !probs}
               style={{
                 marginTop: 6,
                 padding: "10px 16px",

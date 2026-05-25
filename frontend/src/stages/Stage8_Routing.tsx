@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "../api/rest";
-import type { RouteDTO, RoutingResponse } from "../api/rest";
+import type { RouteDTO, RouteVia, RoutingResponse } from "../api/rest";
 import { Panel } from "../components/Panel";
-import { RoutingView } from "../components/RoutingView";
+import { RoutingView, viaColor } from "../components/RoutingView";
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
+
+const VIA_LABEL: Record<RouteVia, string> = {
+  direct: "ישיר (1 hop)",
+  backbone: "דרך ה-backbone",
+  fallback: "fallback (BFS)",
+};
 
 export function Stage8_Routing() {
   const { manet, mis } = usePipeline();
@@ -140,44 +146,47 @@ export function Stage8_Routing() {
             )}
 
             {routing && (
-              <div
-                style={{
-                  padding: 12,
-                  background: palette.bgInset,
-                  borderRadius: 8,
-                  fontSize: 12,
-                  color: palette.textSecondary,
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 8,
-                }}
-              >
-                <Stat label="|backbone|" value={String(routing.backbone.length)} />
-                <Stat
-                  label="coverage"
-                  value={`${(routing.coverage_fraction * 100).toFixed(0)}%`}
-                  color={
-                    routing.coverage_fraction === 1
-                      ? palette.ok
-                      : routing.coverage_fraction > 0.8
-                        ? palette.queraPurpleGlow
-                        : palette.warn
-                  }
-                />
-                <Stat label="mean hops" value={routing.mean_hops.toFixed(2)} />
-                <Stat label="max hops" value={String(routing.max_hops)} />
-                <Stat
-                  label="reachable pairs"
-                  value={`${routing.n_reachable_pairs} / ${manet.graph.n_nodes * (manet.graph.n_nodes - 1)}`}
-                />
-                {activeRoute && (
+              <>
+                <div
+                  style={{
+                    padding: 12,
+                    background: palette.bgInset,
+                    borderRadius: 8,
+                    fontSize: 12,
+                    color: palette.textSecondary,
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 8,
+                  }}
+                >
+                  <Stat label="|backbone|" value={String(routing.backbone.length)} />
                   <Stat
-                    label="active hops"
-                    value={String(activeRoute.hops)}
-                    color={palette.atomGround}
+                    label="coverage"
+                    value={`${(routing.coverage_fraction * 100).toFixed(0)}%`}
+                    color={
+                      routing.coverage_fraction === 1
+                        ? palette.ok
+                        : routing.coverage_fraction > 0.8
+                          ? palette.queraPurpleGlow
+                          : palette.warn
+                    }
                   />
-                )}
-              </div>
+                  <Stat label="mean hops" value={routing.mean_hops.toFixed(2)} />
+                  <Stat label="max hops" value={String(routing.max_hops)} />
+                  <Stat
+                    label="reachable pairs"
+                    value={`${routing.n_reachable_pairs} / ${manet.graph.n_nodes * (manet.graph.n_nodes - 1)}`}
+                  />
+                  {activeRoute && (
+                    <Stat
+                      label="active hops"
+                      value={String(activeRoute.hops)}
+                      color={palette.atomGround}
+                    />
+                  )}
+                </div>
+                <ViaBreakdown routing={routing} />
+              </>
             )}
 
             {activeRoute && (
@@ -189,20 +198,42 @@ export function Stage8_Routing() {
                   fontSize: 12,
                   color: palette.textSecondary,
                 }}
-                dir="ltr"
               >
                 <div
-                  style={{ color: palette.textPrimary, fontWeight: 600, marginBottom: 4 }}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 4,
+                  }}
                 >
-                  current route
+                  <span style={{ color: palette.textPrimary, fontWeight: 600 }}>current route</span>
+                  {activeRoute.hops > 0 && (
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        background: viaColor(activeRoute.via) + "22",
+                        color: viaColor(activeRoute.via),
+                        border: `1px solid ${viaColor(activeRoute.via)}66`,
+                      }}
+                    >
+                      {VIA_LABEL[activeRoute.via]}
+                    </span>
+                  )}
                 </div>
                 {activeRoute.hops === 0 ? (
-                  <span style={{ color: palette.err }}>unreachable</span>
+                  <span style={{ color: palette.err }} dir="ltr">
+                    unreachable (graph component disconnected)
+                  </span>
                 ) : (
                   <div
+                    dir="ltr"
                     style={{
                       fontFamily: "var(--font-mono)",
-                      color: palette.atomGround,
+                      color: viaColor(activeRoute.via),
                     }}
                   >
                     {activeRoute.path.join(" → ")}
@@ -233,12 +264,105 @@ export function Stage8_Routing() {
       <Panel title="הסבר" subtitle="הקשר בין ה-MIS הקוונטי לניתוב המעשי">
         <p style={{ margin: 0, color: palette.textSecondary, lineHeight: 1.7 }}>
           ה-backbone הוא קליק ב-G — כל זוג מכשירים בו רואים אחד את השני בטווח התקשורת.
-          זה אומר שכל שני נציגי backbone מתקשרים ב-1-hop. צמתים שאינם בקליק "מתקרבים" ל-backbone
-          דרך השכן הקליקאי הקרוב, וזוג צמתים מחוץ ל-backbone יכול לתקשר בלכל היותר 3 hops: שכן→backbone→backbone→שכן.
-          coverage חלקי = יש צמתים שלא רואים אף אחד מה-backbone — שם נדרשת רוטינה fallback.
+          האלגוריתם בוחר ראשית את ה-backbone כ-"highway" של הניתוב; אם המסלול עובר דרכו —{" "}
+          <span style={{ color: palette.queraPurpleGlow, fontWeight: 600 }}>זו ההצלחה של החלק הקוונטי</span>{" "}
+          (קצר ויציב). אם זוג קודקודים לא ניתן לניתוב דרך ה-backbone (למשל שניהם רחוקים מהקליק), המערכת
+          מבצעת BFS shortest-path בגרף המלא ומספקת מסלול{" "}
+          <span style={{ color: palette.warn, fontWeight: 600 }}>fallback</span> — צהוב מקווקו במסך.
+          השוואת mean-hops בין backbone ל-fallback היא המידה שבה הקליק חוסך hops לעומת ניתוב ללא backbone:
+          ככל שההפרש גדול יותר, ה-backbone הקוונטי בעל ערך מעשי גבוה יותר.
         </p>
       </Panel>
     </motion.div>
+  );
+}
+
+function ViaBreakdown({ routing }: { routing: RoutingResponse }) {
+  const total = routing.n_via_direct + routing.n_via_backbone + routing.n_via_fallback;
+  if (total === 0) return null;
+  const rows: { via: RouteVia; n: number; mean: number }[] = [
+    { via: "direct", n: routing.n_via_direct, mean: routing.mean_hops_direct },
+    { via: "backbone", n: routing.n_via_backbone, mean: routing.mean_hops_backbone },
+    { via: "fallback", n: routing.n_via_fallback, mean: routing.mean_hops_fallback },
+  ];
+
+  const savings =
+    routing.mean_hops_backbone > 0 && routing.mean_hops_fallback > 0
+      ? 1 - routing.mean_hops_backbone / routing.mean_hops_fallback
+      : null;
+
+  return (
+    <div
+      style={{
+        padding: 12,
+        background: palette.bgInset,
+        borderRadius: 8,
+        fontSize: 12,
+        color: palette.textSecondary,
+      }}
+    >
+      <div style={{ color: palette.textPrimary, fontWeight: 600, marginBottom: 8 }}>
+        ניתוח לפי מסלול
+      </div>
+      {rows.map((row) => {
+        const pct = total > 0 ? (row.n / total) * 100 : 0;
+        const c = viaColor(row.via);
+        return (
+          <div key={row.via} style={{ marginBottom: 6 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 11,
+                color: palette.textMuted,
+                marginBottom: 3,
+              }}
+            >
+              <span>{VIA_LABEL[row.via]}</span>
+              <span dir="ltr">
+                {row.n} ({pct.toFixed(0)}%) · {row.mean > 0 ? `${row.mean.toFixed(2)} hops` : "—"}
+              </span>
+            </div>
+            <div
+              style={{
+                height: 4,
+                background: palette.bgPanel,
+                borderRadius: 999,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${pct}%`,
+                  height: "100%",
+                  background: c,
+                  transition: "width 200ms ease",
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+      {savings !== null && (
+        <div
+          dir="ltr"
+          style={{
+            marginTop: 10,
+            paddingTop: 8,
+            borderTop: `1px solid ${palette.queraPurpleSoft}55`,
+            color: palette.queraPurpleGlow,
+            fontSize: 12,
+            fontWeight: 600,
+            textAlign: "center",
+          }}
+        >
+          backbone hop savings: {(savings * 100).toFixed(0)}%
+          <span style={{ display: "block", fontSize: 10.5, color: palette.textMuted, fontWeight: 400, marginTop: 2 }}>
+            (= 1 − mean_hops_backbone / mean_hops_fallback)
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 

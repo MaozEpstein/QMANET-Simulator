@@ -36,7 +36,9 @@ export function Stage1_MANET() {
   }, [nNodes, commRadius, boxSize, seed, setManet]);
 
   useEffect(() => {
-    regenerate();
+    // Only auto-generate on the very first mount. If a graph is already in
+    // the store (e.g. the user loaded an example from the header), keep it.
+    if (!manet) regenerate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

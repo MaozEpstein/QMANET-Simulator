@@ -49,14 +49,24 @@ def test_complete_graph_all_routes_one_hop():
         assert r.hops == 1
 
 
-def test_empty_backbone_no_routes_outside_pairs():
+def test_empty_backbone_all_routes_via_direct_or_fallback():
+    """Empty backbone → BFS fallback delivers every connected pair, with no
+    'backbone' classification possible. Direct edges stay direct."""
     G = _graph_from_nx(nx.path_graph(5))  # 0-1-2-3-4
     res = build_routing_table(G, backbone=[])
-    # No backbone → only direct edges reachable
+    assert res.n_via_backbone == 0
+    edge_set = {(u, v) for u, v in G.edges} | {(v, u) for u, v in G.edges}
     for r in res.routes:
-        if r.is_reachable:
-            assert r.hops == 1
-            assert (r.src, r.dst) in {(u, v) for u, v in G.edges} | {(v, u) for u, v in G.edges}
+        assert r.is_reachable, "path graph is connected; every pair reachable"
+        if r.hops == 1:
+            assert (r.src, r.dst) in edge_set
+            assert r.via == "direct"
+        else:
+            assert r.via == "fallback"
+    # 0→4 in P_5 must take 4 hops via fallback
+    r04 = next(r for r in res.routes if r.src == 0 and r.dst == 4)
+    assert r04.hops == 4
+    assert r04.via == "fallback"
 
 
 # --------------------------------------------------------------------------- #
@@ -89,20 +99,24 @@ def test_coverage_includes_backbone_and_their_neighbors():
     assert res.coverage_fraction == 1.0
 
 
-def test_uncovered_nodes_have_empty_routes():
-    """4-cycle 0-1-2-3-0 with backbone={1}: node 3 is not a neighbor of 1."""
+def test_uncovered_nodes_get_fallback_routes():
+    """4-cycle 0-1-2-3-0, backbone={1}: node 3 is not a neighbor of 1, so
+    coverage is partial. With BFS fallback, the route still resolves."""
     edges = [(0, 1), (1, 2), (2, 3), (0, 3)]
     G = Graph(n_nodes=4, edges=edges)
     res = build_routing_table(G, backbone=[1])
-    # backbone={1}, covered = {0, 1, 2}. Node 3 is uncovered.
+    # Coverage is unchanged — counts nodes served by backbone in ≤1 hop.
     assert 3 not in res.covered_nodes
-    # Any route ending at 3 from non-neighbors should be unreachable via backbone
+    # 2→3 is a direct edge → 1 hop, via direct.
     route_2_to_3 = next(r for r in res.routes if r.src == 2 and r.dst == 3)
-    # 2-3 is a direct edge → reachable as 1 hop
     assert route_2_to_3.hops == 1
-    # 1-3: not a direct edge, 3 not covered → no path
+    assert route_2_to_3.via == "direct"
+    # 1→3: not a direct edge; backbone={1} doesn't cover 3. Shortest path
+    # is 1→0→3 (2 hops) — intermediate 0 is NOT in backbone, so via="fallback".
     route_1_to_3 = next(r for r in res.routes if r.src == 1 and r.dst == 3)
-    assert not route_1_to_3.is_reachable
+    assert route_1_to_3.is_reachable
+    assert route_1_to_3.hops == 2
+    assert route_1_to_3.via == "fallback"
 
 
 # --------------------------------------------------------------------------- #
@@ -242,12 +256,123 @@ def test_routing_result_to_dict_is_serializable():
         "n_reachable_pairs",
         "mean_hops",
         "max_hops",
+        "n_via_direct",
+        "n_via_backbone",
+        "n_via_fallback",
+        "mean_hops_direct",
+        "mean_hops_backbone",
+        "mean_hops_fallback",
         "routes",
     } <= set(d.keys())
     assert isinstance(d["routes"], list)
+    for r in d["routes"]:
+        assert "via" in r
+        assert r["via"] in {"direct", "backbone", "fallback"}
 
 
 def test_invalid_backbone_vertex_raises():
     G = _graph_from_nx(nx.complete_graph(3))
     with pytest.raises(ValueError, match="out of range"):
         build_routing_table(G, backbone=[0, 5])
+
+
+# --------------------------------------------------------------------------- #
+# Via classification (direct / backbone / fallback) + Petersen acceptance test
+# --------------------------------------------------------------------------- #
+
+
+def _petersen() -> Graph:
+    """Standard Petersen graph: outer pentagon 0..4 + inner pentagram 5..9
+    with spokes i ↔ i+5. Triangle-free, MaxClique = 2, α = 4, diameter = 2."""
+    edges = [
+        # Outer pentagon
+        (0, 1), (1, 2), (2, 3), (3, 4), (4, 0),
+        # Spokes
+        (0, 5), (1, 6), (2, 7), (3, 8), (4, 9),
+        # Inner pentagram (i ↔ i+2 on inner ring)
+        (5, 7), (6, 8), (7, 9), (8, 5), (9, 6),
+    ]
+    return Graph(n_nodes=10, edges=edges)
+
+
+def test_petersen_routing_7_to_8_via_fallback():
+    """The crucial acceptance test: Petersen's MaxClique = 2 (e.g. {7,9}) only
+    serves ~60% of pairs through the backbone, but the graph has diameter 2,
+    so the BFS fallback must deliver 7→8 in 2 hops via node 5 (a non-backbone
+    intermediate). Previously this route was reported as unreachable."""
+    G = _petersen()
+    res = build_routing_table(G, backbone=[7, 9])
+    r = next(r for r in res.routes if r.src == 7 and r.dst == 8)
+    assert r.is_reachable, "7→8 must be reachable; Petersen has diameter 2"
+    assert r.hops == 2
+    assert r.via == "fallback"
+    # The intermediate (node 5) is a shared neighbour of 7 and 8 but NOT in backbone.
+    assert 5 in r.path
+    assert 5 not in res.backbone
+
+
+def test_petersen_every_pair_reachable_via_fallback_or_better():
+    """Petersen is connected (diameter 2), so with BFS fallback every pair
+    resolves. n_reachable_pairs must equal N(N-1) = 90."""
+    G = _petersen()
+    res = build_routing_table(G, backbone=[7, 9])
+    assert res.n_reachable_pairs == 90
+    assert res.max_hops == 2
+
+
+def test_via_classification_distinguishes_three_cases():
+    """A graph that exercises all three via types simultaneously:
+       0-1 (direct edge), 0-2-3 (via backbone {2}), 0-4-5 (fallback, 4 ∉ bb)."""
+    G = Graph(
+        n_nodes=6,
+        edges=[(0, 1), (0, 2), (2, 3), (0, 4), (4, 5)],
+    )
+    res = build_routing_table(G, backbone=[2])
+    r01 = next(r for r in res.routes if r.src == 0 and r.dst == 1)
+    r03 = next(r for r in res.routes if r.src == 0 and r.dst == 3)
+    r05 = next(r for r in res.routes if r.src == 0 and r.dst == 5)
+    assert (r01.via, r01.hops) == ("direct", 1)
+    assert (r03.via, r03.hops) == ("backbone", 2)  # 0 → 2 → 3, intermediate=2 ∈ bb
+    assert (r05.via, r05.hops) == ("fallback", 2)  # 0 → 4 → 5, intermediate=4 ∉ bb
+
+
+def test_via_counts_sum_to_reachable_pairs():
+    """The three via buckets must partition the reachable pairs exactly."""
+    G = _petersen()
+    res = build_routing_table(G, backbone=[7, 9])
+    assert res.n_via_direct + res.n_via_backbone + res.n_via_fallback == res.n_reachable_pairs
+
+
+def test_mean_hops_per_via_within_bounds():
+    """direct must average exactly 1 hop; backbone+fallback must be ≥ 2."""
+    G = _petersen()
+    res = build_routing_table(G, backbone=[7, 9])
+    if res.n_via_direct > 0:
+        assert res.mean_hops_direct == 1.0
+    if res.n_via_backbone > 0:
+        assert res.mean_hops_backbone >= 2.0
+    if res.n_via_fallback > 0:
+        assert res.mean_hops_fallback >= 2.0
+
+
+def test_backbone_path_classification_endpoint_is_backbone():
+    """When the route enters/exits the backbone (e.g. src ∈ bb → dst ∉ bb), the
+    intermediate (the backbone-side hop) must be in the backbone set so the
+    route classifies as 'backbone'."""
+    # Edges: 0-1, 1-2. Backbone {1}. Route 0→2 = 0→1→2. Intermediate=1 ∈ bb.
+    G = Graph(n_nodes=3, edges=[(0, 1), (1, 2)])
+    res = build_routing_table(G, backbone=[1])
+    r = next(r for r in res.routes if r.src == 0 and r.dst == 2)
+    assert r.via == "backbone"
+    assert r.hops == 2
+
+
+def test_disconnected_graph_reports_unreachable():
+    """If G is disconnected, BFS legitimately fails. Hops=0, via=direct
+    (the sentinel for the unreachable case)."""
+    G = Graph(n_nodes=4, edges=[(0, 1), (2, 3)])  # two components
+    res = build_routing_table(G, backbone=[0])
+    r02 = next(r for r in res.routes if r.src == 0 and r.dst == 2)
+    assert not r02.is_reachable
+    assert r02.hops == 0
+    assert r02.path == ()

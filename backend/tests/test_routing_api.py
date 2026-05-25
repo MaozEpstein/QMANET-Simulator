@@ -68,7 +68,9 @@ def test_routing_rejects_out_of_range_backbone():
     assert r.status_code == 422
 
 
-def test_routing_empty_backbone_only_direct_edges():
+def test_routing_empty_backbone_uses_fallback():
+    """Empty backbone: BFS fallback resolves every connected pair. Path 0-1-2
+    is connected, so 0→2 routes via 0→1→2 = 2 hops with via='fallback'."""
     body = client.post(
         "/api/routing/build",
         json={
@@ -80,10 +82,12 @@ def test_routing_empty_backbone_only_direct_edges():
             "backbone": [],
         },
     ).json()
-    # Backbone empty → only direct edges reachable
-    for r in body["routes"]:
-        if r["hops"] > 0:
-            assert r["hops"] == 1
+    assert body["n_via_backbone"] == 0
+    r02 = next(r for r in body["routes"] if r["src"] == 0 and r["dst"] == 2)
+    assert r02["hops"] == 2
+    assert r02["via"] == "fallback"
+    r01 = next(r for r in body["routes"] if r["src"] == 0 and r["dst"] == 1)
+    assert r01["via"] == "direct"
 
 
 def test_routing_non_clique_backbone_flagged_but_not_rejected():
