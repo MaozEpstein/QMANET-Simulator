@@ -11,7 +11,7 @@ import { PRESETS, type PresetSpec } from "../lib/graphPresets";
 import {
   GRID_TYPES,
   computeGridGeometry,
-  snapToGridPoint,
+  snapToGrid as snapToGridGeom,
   type GridGeometry,
   type GridType,
 } from "../lib/gridGeometry";
@@ -27,7 +27,7 @@ const NODE_RADIUS_PX = 8;
 const EDGE_HITBOX_PX = 6;
 const DEFAULT_GRID_STEP = 10;
 const GRID_STEP_MIN = 1;
-const GRID_STEP_MAX = 25;
+const GRID_STEP_MAX = 50;
 
 type Tool = "move" | "addNode" | "addEdge" | "delete";
 
@@ -184,7 +184,7 @@ export function GraphEditor({ onSave, onCancel }: Props) {
   const addNodeAt = useCallback(
     (ux: number, uy: number) => {
       const snapped = snapToGrid
-        ? snapToGridPoint(ux, uy, gridGeometry, gridStep)
+        ? snapToGridGeom(ux, uy, gridGeometry, gridStep)
         : { x: ux, y: uy };
       const x = clampUm(snapped.x);
       const y = clampUm(snapped.y);
@@ -292,7 +292,7 @@ export function GraphEditor({ onSave, onCancel }: Props) {
       const coord = getMouseUm(evt);
       if (!coord) return;
       const snapped = snapToGrid
-        ? snapToGridPoint(coord.ux, coord.uy, gridGeometry, gridStep)
+        ? snapToGridGeom(coord.ux, coord.uy, gridGeometry, gridStep)
         : { x: coord.ux, y: coord.uy };
       const x = clampUm(snapped.x);
       const y = clampUm(snapped.y);
@@ -570,6 +570,7 @@ export function GraphEditor({ onSave, onCancel }: Props) {
         setCommRadius={setCommRadius}
         showCommRadius={showCommRadius}
         setShowCommRadius={setShowCommRadius}
+        gridType={gridType}
         gridStep={gridStep}
         setGridStep={setGridStep}
         showGrid={showGrid}
@@ -914,9 +915,9 @@ function GridLayer({ geometry }: { geometry: GridGeometry }) {
             y1={a.py}
             x2={b.px}
             y2={b.py}
-            stroke={palette.queraPurpleSoft}
-            strokeOpacity={l.bold ? 0.45 : 0.16}
-            strokeWidth={l.bold ? 1 : 0.6}
+            stroke="#c79b5a"
+            strokeOpacity={l.bold ? 0.55 : 0.3}
+            strokeWidth={l.bold ? 1.2 : 0.8}
           />
         );
       })}
@@ -1113,6 +1114,7 @@ function SidePanel({
   setCommRadius,
   showCommRadius,
   setShowCommRadius,
+  gridType,
   gridStep,
   setGridStep,
   showGrid,
@@ -1132,6 +1134,7 @@ function SidePanel({
   setCommRadius: (v: number) => void;
   showCommRadius: boolean;
   setShowCommRadius: (v: boolean) => void;
+  gridType: GridType;
   gridStep: number;
   setGridStep: (v: number) => void;
   showGrid: boolean;
@@ -1145,6 +1148,9 @@ function SidePanel({
   tool: Tool;
   pendingEdgeStart: number | null;
 }) {
+  const gridSpec = GRID_TYPES.find((g) => g.id === gridType);
+  const sizeLabel = gridSpec?.sizeLabel || "מרווח רשת (µm)";
+  const gridDisabled = gridType === "none";
   const hints: Record<Tool, string> = {
     addNode: "קליק על הקנבס מוסיף קודקוד חדש.",
     addEdge:
@@ -1233,7 +1239,7 @@ function SidePanel({
         />
       </div>
 
-      <div>
+      <div style={{ opacity: gridDisabled ? 0.5 : 1 }}>
         <label
           style={{
             display: "flex",
@@ -1246,9 +1252,9 @@ function SidePanel({
           }}
         >
           <span>
-            רשת (µm):{" "}
+            {gridDisabled ? "רשת:" : `${sizeLabel}:`}{" "}
             <strong style={{ color: palette.textPrimary }} dir="ltr">
-              {gridStep}
+              {gridDisabled ? "—" : gridStep}
             </strong>
           </span>
           <span style={{ display: "inline-flex", gap: 8 }}>
@@ -1258,7 +1264,8 @@ function SidePanel({
             >
               <input
                 type="checkbox"
-                checked={showGrid}
+                checked={showGrid && !gridDisabled}
+                disabled={gridDisabled}
                 onChange={(e) => setShowGrid(e.target.checked)}
                 style={{ margin: 0 }}
               />
@@ -1266,11 +1273,12 @@ function SidePanel({
             </label>
             <label
               style={miniCheckboxLabelStyle}
-              title="הצמד קודקודים חדשים וגרירות לנקודות הרשת"
+              title="הצמד קודקודים חדשים וגרירות לרשת"
             >
               <input
                 type="checkbox"
-                checked={snapToGrid}
+                checked={snapToGrid && !gridDisabled}
+                disabled={gridDisabled}
                 onChange={(e) => setSnapToGrid(e.target.checked)}
                 style={{ margin: 0 }}
               />
@@ -1284,8 +1292,9 @@ function SidePanel({
           max={GRID_STEP_MAX}
           step={1}
           value={gridStep}
+          disabled={gridDisabled}
           onChange={(e) => setGridStep(Number(e.target.value))}
-          aria-label="צפיפות רשת"
+          aria-label={sizeLabel || "צפיפות רשת"}
           style={{ width: "100%" }}
         />
       </div>

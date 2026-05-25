@@ -1,4 +1,4 @@
-export type GridType = "square" | "polar" | "triangular" | "hex";
+export type GridType = "none" | "square" | "polar" | "triangular" | "hex";
 
 export interface GridLine {
   x1: number;
@@ -18,11 +18,19 @@ export interface GridGeometry {
   lines: GridLine[];
 }
 
-export const GRID_TYPES: { id: GridType; label: string; description: string }[] = [
-  { id: "square", label: "ריבועית", description: "קווים אופקיים ואנכיים — קודקודים יוצמדו לפינות תאים." },
-  { id: "polar", label: "עגולה", description: "טבעות קונצנטריות + שורות רדיאליות. שימושי לטופולוגיות סלולריות." },
-  { id: "triangular", label: "משולשית", description: "סריג משולשי — כל קודקוד עם 6 שכנים פוטנציאליים." },
-  { id: "hex", label: "משושית (חלת דבש)", description: "תבנית חלת-דבש — קודקודים על קודקודי משושים." },
+export interface GridTypeSpec {
+  id: GridType;
+  label: string;
+  description: string;
+  sizeLabel: string;
+}
+
+export const GRID_TYPES: GridTypeSpec[] = [
+  { id: "none", label: "ללא", description: "ללא רשת רקע — קנבס נקי. ההצמדה מושבתת.", sizeLabel: "" },
+  { id: "square", label: "ריבועית", description: "קווים אופקיים ואנכיים — קודקודים יוצמדו לפינות תאים.", sizeLabel: "גודל תא (µm)" },
+  { id: "polar", label: "עגולה", description: "טבעות קונצנטריות + שורות רדיאליות. שימושי לטופולוגיות סלולריות.", sizeLabel: "מרווח טבעות (µm)" },
+  { id: "triangular", label: "משולשית", description: "סריג משולשי — כל קודקוד עם 6 שכנים פוטנציאליים.", sizeLabel: "מרווח סריג (µm)" },
+  { id: "hex", label: "משושית (חלת דבש)", description: "תבנית חלת-דבש — קודקודים על קודקודי משושים.", sizeLabel: "צלע משושה (µm)" },
 ];
 
 function squareGeometry(step: number, boxSize: number): GridGeometry {
@@ -151,6 +159,8 @@ export function computeGridGeometry(
   boxSize: number,
 ): GridGeometry {
   switch (type) {
+    case "none":
+      return { points: [], lines: [] };
     case "square":
       return squareGeometry(step, boxSize);
     case "polar":
@@ -162,29 +172,63 @@ export function computeGridGeometry(
   }
 }
 
-export function snapToGridPoint(
+function distanceToSegment(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): { x: number; y: number; d: number } {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) {
+    return { x: x1, y: y1, d: Math.hypot(px - x1, py - y1) };
+  }
+  let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const x = x1 + t * dx;
+  const y = y1 + t * dy;
+  return { x, y, d: Math.hypot(px - x, py - y) };
+}
+
+/**
+ * Snap (ux, uy) to the closest grid feature.
+ *
+ * Priority: a nearby intersection point wins over a line, since the user
+ * "meant" to land on it. A line wins when the user clicked clearly on the
+ * line but far from any intersection. If both are too far, fall back to
+ * the original coordinate (no snap).
+ */
+export function snapToGrid(
   ux: number,
   uy: number,
   geom: GridGeometry,
   step: number,
 ): { x: number; y: number } {
-  if (geom.points.length === 0) return { x: ux, y: uy };
-  let bestX = ux;
-  let bestY = uy;
-  let bestD2 = Infinity;
+  let pt = { x: ux, y: uy, d: Infinity };
   for (const p of geom.points) {
-    const dx = p.x - ux;
-    const dy = p.y - uy;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestD2) {
-      bestD2 = d2;
-      bestX = p.x;
-      bestY = p.y;
-    }
+    const d = Math.hypot(p.x - ux, p.y - uy);
+    if (d < pt.d) pt = { x: p.x, y: p.y, d };
   }
-  // Don't snap when the user is far from any grid point (e.g. outside polar
-  // coverage). 1.5 * step gives some forgiveness while still keeping snap
-  // local enough to feel intentional.
-  if (Math.sqrt(bestD2) > step * 1.5) return { x: ux, y: uy };
-  return { x: bestX, y: bestY };
+
+  let line = { x: ux, y: uy, d: Infinity };
+  for (const l of geom.lines) {
+    const r = distanceToSegment(ux, uy, l.x1, l.y1, l.x2, l.y2);
+    if (r.d < line.d) line = r;
+  }
+
+  // Intersection wins inside its "click radius" (~⅓ of grid step), even if a
+  // line is technically closer.
+  const pointSnapRadius = step * 0.35;
+  const lineSnapRadius = step * 0.5;
+
+  if (pt.d <= pointSnapRadius) return { x: pt.x, y: pt.y };
+  if (line.d <= lineSnapRadius) return { x: line.x, y: line.y };
+  if (pt.d <= step * 1.5) return { x: pt.x, y: pt.y };
+  return { x: ux, y: uy };
 }
+
+/** @deprecated kept for backward compat — prefer snapToGrid. */
+export const snapToGridPoint = snapToGrid;
