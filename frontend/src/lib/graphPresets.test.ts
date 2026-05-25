@@ -11,10 +11,11 @@ import {
   PRESETS,
 } from "./graphPresets";
 
-const BOX = 100;
+const BOX_W = 200;
+const BOX_H = 100;
 
 function allInsideBox(positions: { x: number; y: number }[]) {
-  return positions.every((p) => p.x >= 0 && p.x <= BOX && p.y >= 0 && p.y <= BOX);
+  return positions.every((p) => p.x >= 0 && p.x <= BOX_W && p.y >= 0 && p.y <= BOX_H);
 }
 
 describe("buildRing", () => {

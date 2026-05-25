@@ -17,11 +17,13 @@ import {
 } from "../lib/gridGeometry";
 import { palette } from "../theme/palette";
 
-const BOX_UM = 100;
+const BOX_W = 200;
+const BOX_H = 100;
 const DEFAULT_COMM_RADIUS = 35;
 const COMM_RADIUS_MIN = 1;
 const COMM_RADIUS_MAX = 60;
-const CANVAS_PX = 1080;
+const CANVAS_W = 1300;
+const CANVAS_H = 674;
 const PADDING_PX = 24;
 const NODE_RADIUS_PX = 8;
 const EDGE_HITBOX_PX = 6;
@@ -39,27 +41,55 @@ interface DragState {
 
 interface Props {
   onSave: (payload: MANETResponse, name: string, description: string) => void;
-  onCancel: () => void;
+  /** When provided, shows the "ביטול" button. Embedded contexts omit this. */
+  onCancel?: () => void;
+  /**
+   * Source-of-truth graph the editor should reflect. The editor seeds its
+   * internal state from this on mount and resets when this reference changes
+   * to a *different* graph (content-compared). Echoes from our own onCommit
+   * are silently ignored, so it's safe to pass the same store-backed value.
+   */
+  externalValue?: MANETResponse | null;
+  /**
+   * Fires after every meaningful edit (add/delete/drag-end/auto-connect/
+   * clear/preset/undo). Use this to live-sync the editor into a parent store.
+   */
+  onCommit?: (payload: MANETResponse) => void;
 }
 
-const SCALE = (CANVAS_PX - 2 * PADDING_PX) / BOX_UM;
+function graphsEqual(a: NodePos[], b: NodePos[], ae: [number, number][], be: [number, number][]): boolean {
+  if (a.length !== b.length || ae.length !== be.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].id !== b[i].id || a[i].x !== b[i].x || a[i].y !== b[i].y) return false;
+  }
+  for (let i = 0; i < ae.length; i++) {
+    if (ae[i][0] !== be[i][0] || ae[i][1] !== be[i][1]) return false;
+  }
+  return true;
+}
+
+const SCALE = (CANVAS_W - 2 * PADDING_PX) / BOX_W;
 
 function umToPx(ux: number, uy: number): { px: number; py: number } {
   return {
     px: PADDING_PX + ux * SCALE,
-    py: CANVAS_PX - PADDING_PX - uy * SCALE,
+    py: CANVAS_H - PADDING_PX - uy * SCALE,
   };
 }
 
 function pxToUm(px: number, py: number): { ux: number; uy: number } {
   return {
     ux: (px - PADDING_PX) / SCALE,
-    uy: (CANVAS_PX - PADDING_PX - py) / SCALE,
+    uy: (CANVAS_H - PADDING_PX - py) / SCALE,
   };
 }
 
-function clampUm(v: number): number {
-  return Math.max(0, Math.min(BOX_UM, v));
+function clampX(v: number): number {
+  return Math.max(0, Math.min(BOX_W, v));
+}
+
+function clampY(v: number): number {
+  return Math.max(0, Math.min(BOX_H, v));
 }
 
 function lowestFreeId(nodes: NodePos[]): number {
@@ -92,10 +122,14 @@ function distancePointToSegment(
   return distance(px, py, ax + t * dx, ay + t * dy);
 }
 
-export function GraphEditor({ onSave, onCancel }: Props) {
+export function GraphEditor({ onSave, onCancel, externalValue, onCommit }: Props) {
   const [tool, setTool] = useState<Tool>("addNode");
-  const [nodes, setNodes] = useState<NodePos[]>([]);
-  const [edges, setEdges] = useState<[number, number][]>([]);
+  const [nodes, setNodes] = useState<NodePos[]>(
+    () => externalValue?.graph.node_positions ?? [],
+  );
+  const [edges, setEdges] = useState<[number, number][]>(
+    () => externalValue?.graph.edges ?? [],
+  );
   const [commRadius, setCommRadius] = useState(DEFAULT_COMM_RADIUS);
   const [showCommRadius, setShowCommRadius] = useState(true);
   const [gridStep, setGridStep] = useState(DEFAULT_GRID_STEP);
@@ -105,7 +139,7 @@ export function GraphEditor({ onSave, onCancel }: Props) {
   const [gridMenuOpen, setGridMenuOpen] = useState(false);
 
   const gridGeometry = useMemo<GridGeometry>(
-    () => computeGridGeometry(gridType, gridStep, BOX_UM),
+    () => computeGridGeometry(gridType, gridStep, BOX_W, BOX_H),
     [gridType, gridStep],
   );
   const [pendingEdgeStart, setPendingEdgeStart] = useState<number | null>(null);
@@ -165,6 +199,53 @@ export function GraphEditor({ onSave, onCancel }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [undo]);
 
+  // Sync from an external value (e.g. the pipeline store) when it changes to
+  // a *different* graph. Echoes of our own commit are no-ops because the
+  // content already matches local state. We compare via refs so this effect
+  // only fires when externalValue itself changes — NOT on every local edit
+  // (otherwise an in-flight add would be rolled back to the pre-commit
+  // externalValue before the parent has had a chance to absorb our commit).
+  const skipNextCommitRef = useRef(true); // skip the implicit "first render" commit
+  useEffect(() => {
+    if (!externalValue) return;
+    const newPositions = externalValue.graph.node_positions ?? [];
+    const newEdges = externalValue.graph.edges;
+    if (graphsEqual(newPositions, nodesRef.current, newEdges, edgesRef.current)) {
+      return;
+    }
+    skipNextCommitRef.current = true;
+    setNodes(newPositions);
+    setEdges(newEdges);
+    setPendingEdgeStart(null);
+    setDrag(null);
+  }, [externalValue]);
+
+  // Auto-commit graph changes to the parent. Fires only for genuine user
+  // edits — initial mount and external syncs flip skipNextCommitRef.
+  useEffect(() => {
+    if (!onCommit) return;
+    if (skipNextCommitRef.current) {
+      skipNextCommitRef.current = false;
+      return;
+    }
+    onCommit({
+      graph: {
+        n_nodes: nodes.length,
+        edges: normalizeEdges(edges),
+        node_positions: nodes.map((n, i) => ({ id: i, x: n.x, y: n.y })),
+      },
+      config: {
+        n_nodes: nodes.length,
+        box_size: Math.max(BOX_W, BOX_H),
+        comm_radius: commRadius,
+        seed: null,
+      },
+    });
+    // commRadius intentionally excluded — slider drags shouldn't churn the
+    // pipeline; the value is committed alongside the next graph edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges]);
+
   const isDirty = nodes.length > 0 || edges.length > 0;
 
   const flash = useCallback((msg: string) => {
@@ -186,8 +267,8 @@ export function GraphEditor({ onSave, onCancel }: Props) {
       const snapped = snapToGrid
         ? snapToGridGeom(ux, uy, gridGeometry, gridStep)
         : { x: ux, y: uy };
-      const x = clampUm(snapped.x);
-      const y = clampUm(snapped.y);
+      const x = clampX(snapped.x);
+      const y = clampY(snapped.y);
       if (wouldCollideWithExisting(nodes, x, y)) {
         flash("לא ניתן להניח קודקוד על קודקוד קיים.");
         return;
@@ -294,8 +375,8 @@ export function GraphEditor({ onSave, onCancel }: Props) {
       const snapped = snapToGrid
         ? snapToGridGeom(coord.ux, coord.uy, gridGeometry, gridStep)
         : { x: coord.ux, y: coord.uy };
-      const x = clampUm(snapped.x);
-      const y = clampUm(snapped.y);
+      const x = clampX(snapped.x);
+      const y = clampY(snapped.y);
       setNodes((prev) =>
         prev.map((n) => (n.id === drag.id ? { ...n, x, y } : n)),
       );
@@ -396,7 +477,7 @@ export function GraphEditor({ onSave, onCancel }: Props) {
       },
       config: {
         n_nodes: nodes.length,
-        box_size: BOX_UM,
+        box_size: Math.max(BOX_W, BOX_H),
         comm_radius: commRadius,
         seed: null,
       },
@@ -434,6 +515,7 @@ export function GraphEditor({ onSave, onCancel }: Props) {
   }, [saveDialog, name, description, onSave, buildPayload]);
 
   const handleCancel = useCallback(() => {
+    if (!onCancel) return;
     if (isDirty && !window.confirm("לצאת בלי לשמור? כל השינויים יאבדו.")) return;
     onCancel();
   }, [isDirty, onCancel]);
@@ -487,8 +569,8 @@ export function GraphEditor({ onSave, onCancel }: Props) {
         <div
           style={{
             position: "relative",
-            width: CANVAS_PX,
-            height: CANVAS_PX,
+            width: CANVAS_W,
+            height: CANVAS_H,
             borderRadius: 12,
             border: `1px solid ${palette.queraPurpleSoft}`,
             background: palette.bgInset,
@@ -497,8 +579,8 @@ export function GraphEditor({ onSave, onCancel }: Props) {
         >
           <svg
             ref={svgRef}
-            width={CANVAS_PX}
-            height={CANVAS_PX}
+            width={CANVAS_W}
+            height={CANVAS_H}
             style={{
               display: "block",
               cursor:
@@ -580,7 +662,7 @@ export function GraphEditor({ onSave, onCancel }: Props) {
         onAutoConnect={autoConnect}
         onClear={clearAll}
         onSave={tryOpenSave}
-        onCancel={handleCancel}
+        onCancel={onCancel ? handleCancel : undefined}
         tool={tool}
         pendingEdgeStart={pendingEdgeStart}
       />
@@ -898,10 +980,10 @@ function GridLayer({ geometry }: { geometry: GridGeometry }) {
       <defs>
         <clipPath id="editor-box-clip">
           <rect
-            x={umToPx(0, BOX_UM).px}
-            y={umToPx(0, BOX_UM).py}
-            width={umToPx(BOX_UM, 0).px - umToPx(0, 0).px}
-            height={umToPx(0, 0).py - umToPx(0, BOX_UM).py}
+            x={umToPx(0, BOX_H).px}
+            y={umToPx(0, BOX_H).py}
+            width={umToPx(BOX_W, 0).px - umToPx(0, 0).px}
+            height={umToPx(0, 0).py - umToPx(0, BOX_H).py}
           />
         </clipPath>
       </defs>
@@ -926,8 +1008,8 @@ function GridLayer({ geometry }: { geometry: GridGeometry }) {
 }
 
 function BoxOutline() {
-  const { px: x0, py: y0 } = umToPx(0, BOX_UM);
-  const { px: x1, py: y1 } = umToPx(BOX_UM, 0);
+  const { px: x0, py: y0 } = umToPx(0, BOX_H);
+  const { px: x1, py: y1 } = umToPx(BOX_W, 0);
   return (
     <rect
       x={x0}
@@ -1144,7 +1226,7 @@ function SidePanel({
   onAutoConnect: () => void;
   onClear: () => void;
   onSave: () => void;
-  onCancel: () => void;
+  onCancel?: () => void;
   tool: Tool;
   pendingEdgeStart: number | null;
 }) {
@@ -1309,11 +1391,13 @@ function SidePanel({
       <div style={{ flex: 1 }} />
 
       <button onClick={onSave} style={primaryBtn(false)}>
-        שמור
+        שמור ב&quot;הגרפים שלי&quot;
       </button>
-      <button onClick={onCancel} style={secondaryBtn(false)}>
-        ביטול
-      </button>
+      {onCancel && (
+        <button onClick={onCancel} style={secondaryBtn(false)}>
+          ביטול
+        </button>
+      )}
     </div>
   );
 }

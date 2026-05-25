@@ -16,10 +16,13 @@ export interface PresetSpec {
   build: (param: number) => PresetResult;
 }
 
-const CX = 50;
+// The editor's working area is 200×100 µm (wide rectangle). Presets center
+// their layouts at (CX, CY) so they sit inside the box regardless of shape.
+const CX = 100;
 const CY = 50;
 const RING_R = 40;
 const MARGIN = 10;
+const BOX_W = 200;
 
 function ringPositions(n: number, radius = RING_R): NodePos[] {
   return Array.from({ length: n }, (_, i) => {
@@ -60,7 +63,7 @@ export function buildStar(nLeaves: number): PresetResult {
 }
 
 export function buildPath(n: number): PresetResult {
-  const span = 100 - 2 * MARGIN;
+  const span = BOX_W - 2 * MARGIN;
   const step = n > 1 ? span / (n - 1) : 0;
   const positions: NodePos[] = Array.from({ length: n }, (_, i) => ({
     id: i,
@@ -82,10 +85,16 @@ export function buildComplete(n: number): PresetResult {
 export function buildSquareGrid(k: number): PresetResult {
   const span = 100 - 2 * MARGIN;
   const step = k > 1 ? span / (k - 1) : 0;
+  const xOffset = (BOX_W - 100) / 2 + MARGIN; // center horizontally in wide box
+  const yOffset = MARGIN;
   const positions: NodePos[] = [];
   for (let row = 0; row < k; row++) {
     for (let col = 0; col < k; col++) {
-      positions.push({ id: row * k + col, x: MARGIN + col * step, y: MARGIN + row * step });
+      positions.push({
+        id: row * k + col,
+        x: xOffset + col * step,
+        y: yOffset + row * step,
+      });
     }
   }
   const edges: [number, number][] = [];
@@ -106,6 +115,7 @@ export function buildTriangularGrid(rows: number): PresetResult {
   const yStep = (xStep * Math.sqrt(3)) / 2;
   const totalHeight = (rows - 1) * yStep;
   const yOffset = (100 - totalHeight) / 2;
+  const xBase = (BOX_W - 100) / 2 + MARGIN; // center horizontally in wide box
   const positions: NodePos[] = [];
   const idAt: number[][] = [];
   for (let row = 0; row < rows; row++) {
@@ -113,11 +123,11 @@ export function buildTriangularGrid(rows: number): PresetResult {
     const colsThisRow = cols;
     const rowOffsetX = (row % 2 === 0 ? 0 : xStep / 2);
     for (let col = 0; col < colsThisRow; col++) {
-      if (MARGIN + rowOffsetX + col * xStep > 100 - MARGIN + 1e-6) break;
+      if (xBase + rowOffsetX + col * xStep > xBase + 100 - 2 * MARGIN + 1e-6) break;
       const id = positions.length;
       positions.push({
         id,
-        x: MARGIN + rowOffsetX + col * xStep,
+        x: xBase + rowOffsetX + col * xStep,
         y: yOffset + row * yStep,
       });
       rowIds.push(id);

@@ -1,49 +1,44 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { motion } from "framer-motion";
-import { api } from "../api/rest";
+import type { MANETResponse } from "../api/rest";
 import { ExportButton } from "../components/ExportButton";
-import { GraphView } from "../components/GraphView";
+import { GraphEditor } from "../components/GraphEditor";
 import { Panel } from "../components/Panel";
-import { Slider } from "../components/Slider";
+import { saveGraph } from "../lib/savedGraphs";
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
 
 export function Stage1_MANET() {
-  const { manet, setManet } = usePipeline();
-  const [nNodes, setNNodes] = useState(12);
-  const [commRadius, setCommRadius] = useState(35);
-  const [boxSize, setBoxSize] = useState(100);
-  const [seed, setSeed] = useState(42);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const {
+    manet,
+    setManet,
+    setMIS,
+    setEmbed,
+    setSchedule,
+    resetSimulation,
+  } = usePipeline();
 
-  const regenerate = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await api.generateMANET({
-        n_nodes: nNodes,
-        comm_radius: commRadius,
-        box_size: boxSize,
-        seed,
-      });
-      setManet(res);
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [nNodes, commRadius, boxSize, seed, setManet]);
+  const handleCommit = useCallback(
+    (payload: MANETResponse) => {
+      setManet(payload);
+      setMIS(null);
+      setEmbed(null);
+      setSchedule(null);
+      resetSimulation();
+    },
+    [setManet, setMIS, setEmbed, setSchedule, resetSimulation],
+  );
 
-  useEffect(() => {
-    // Only auto-generate on the very first mount. If a graph is already in
-    // the store (e.g. the user loaded an example from the header), keep it.
-    if (!manet) regenerate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const handleSaveToLibrary = useCallback(
+    (payload: MANETResponse, name: string, description: string) => {
+      saveGraph(name, description, payload);
+    },
+    [],
+  );
 
   const edgeCount = manet?.graph.edges.length ?? 0;
-  const avgDegree = manet ? (2 * edgeCount) / manet.graph.n_nodes : 0;
+  const nNodes = manet?.graph.n_nodes ?? 0;
+  const avgDegree = nNodes > 0 ? (2 * edgeCount) / nNodes : 0;
 
   return (
     <motion.div
@@ -53,106 +48,29 @@ export function Stage1_MANET() {
       style={{ display: "grid", gap: 16 }}
     >
       <Panel
-        title="שלב 1 · רשת MANET"
-        subtitle="כל צומת = מכשיר נייד; קשת בין שני צמתים שבטווח התקשורת זה מזה (Random Geometric Graph)"
+        title="שלב 1 · בניית גרף MANET"
+        subtitle="בנה את הגרף ידנית, טען תבנית מוכנה, או חבר אוטומטית לפי טווח תקשורת. כל שינוי מתעדכן מיידית לצינור."
         right={<ExportButton filename="manet" data={manet} />}
       >
+        <GraphEditor
+          externalValue={manet}
+          onCommit={handleCommit}
+          onSave={handleSaveToLibrary}
+        />
+      </Panel>
+
+      <Panel title="מאפייני הגרף">
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(300px, 1fr) auto",
-            gap: 20,
-            alignItems: "start",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: 14,
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 14,
-            }}
-          >
-            <Slider
-              label="מספר צמתים (N)"
-              value={nNodes}
-              onChange={setNNodes}
-              min={4}
-              max={28}
-              step={1}
-            />
-            <Slider
-              label="טווח תקשורת"
-              value={commRadius}
-              onChange={setCommRadius}
-              min={5}
-              max={100}
-              step={1}
-              unit="m"
-            />
-            <Slider
-              label="גודל אזור"
-              value={boxSize}
-              onChange={setBoxSize}
-              min={20}
-              max={200}
-              step={5}
-              unit="m"
-            />
-            <Slider label="זרע (seed)" value={seed} onChange={setSeed} min={0} max={999} step={1} />
-            <button
-              onClick={regenerate}
-              disabled={loading}
-              style={{
-                marginTop: 6,
-                padding: "10px 16px",
-                background: palette.queraPurple,
-                color: "#fff",
-                border: "none",
-                borderRadius: 8,
-                fontWeight: 600,
-                cursor: loading ? "wait" : "pointer",
-              }}
-            >
-              {loading ? "מייצר…" : "↻ ייצר מחדש"}
-            </button>
-            {err && (
-              <div style={{ color: palette.err, fontSize: 12 }} dir="ltr">
-                {err}
-              </div>
-            )}
-
-            <div
-              style={{
-                marginTop: 16,
-                padding: 12,
-                background: palette.bgInset,
-                borderRadius: 8,
-                fontSize: 12,
-                color: palette.textSecondary,
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 8,
-              }}
-            >
-              <Stat label="N (צמתים)" value={String(manet?.graph.n_nodes ?? "—")} />
-              <Stat label="E (קשתות)" value={String(edgeCount)} />
-              <Stat label="דרגה ממוצעת" value={avgDegree.toFixed(2)} />
-              <Stat label="צפיפות" value={density(manet?.graph.n_nodes ?? 0, edgeCount).toFixed(3)} />
-            </div>
-          </div>
-
-          <div>
-            {manet && (
-              <GraphView
-                graph={manet.graph}
-                mode="geometric"
-                commRadius={commRadius}
-                caption="MANET snapshot (geometric · 2D)"
-                width={560}
-                height={500}
-              />
-            )}
-          </div>
+          <Stat label="N (צמתים)" value={String(nNodes)} />
+          <Stat label="E (קשתות)" value={String(edgeCount)} />
+          <Stat label="דרגה ממוצעת" value={avgDegree.toFixed(2)} />
+          <Stat label="צפיפות" value={density(nNodes, edgeCount).toFixed(3)} />
         </div>
       </Panel>
 
@@ -161,10 +79,13 @@ export function Stage1_MANET() {
           ברשת MANET שני מכשירים יכולים לתקשר ישירות אם המרחק הפיזי ביניהם קטן מטווח
           השידור של האנטנה. המודל המתמטי הסטנדרטי לכך הוא <em>Random Geometric Graph</em>:
           צמתים נדגמים אקראית במישור, וקשת קיימת כאשר{" "}
-          <span dir="ltr" className="mono">|x_i − x_j| ≤ R_comm</span>. בשלב הבא נחפש{" "}
-          <strong>קליק מקסימלי</strong> בגרף — קבוצה גדולה ככל הניתן של מכשירים שכולם רואים זה את
-          זה — בתור backbone לניתוב. הקושי החישובי הוא NP-קשה, ולכן נתרגם אותו בשלב 2 לבעיית{" "}
-          <strong>MIS על הגרף המשלים</strong>, שאותה ניתן לפתור אדיאבטית על מערך אטומים.
+          <span dir="ltr" className="mono">|x_i − x_j| ≤ R_comm</span>. בעורך אפשר לבנות
+          גרף מאפס, להטעין תבנית (טבעת, רשת, פרח משושים…), או להניח קודקודים ולהפעיל
+          &quot;חבר אוטומטית&quot; שמייצר קשתות לפי הרדיוס. בשלב הבא נחפש{" "}
+          <strong>קליק מקסימלי</strong> בגרף — קבוצה גדולה ככל הניתן של מכשירים שכולם
+          רואים זה את זה — בתור backbone לניתוב. הקושי החישובי הוא NP-קשה, ולכן נתרגם
+          אותו בשלב 2 לבעיית <strong>MIS על הגרף המשלים</strong>, שאותה ניתן לפתור
+          אדיאבטית על מערך אטומים.
         </p>
       </Panel>
     </motion.div>
@@ -179,7 +100,7 @@ function Stat({ label, value }: { label: string; value: string }) {
         style={{
           fontFamily: "var(--font-mono)",
           color: palette.queraPurpleGlow,
-          fontSize: 16,
+          fontSize: 18,
         }}
         dir="ltr"
       >

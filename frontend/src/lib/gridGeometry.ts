@@ -33,26 +33,30 @@ export const GRID_TYPES: GridTypeSpec[] = [
   { id: "hex", label: "משושית (חלת דבש)", description: "תבנית חלת-דבש — קודקודים על קודקודי משושים.", sizeLabel: "צלע משושה (µm)" },
 ];
 
-function squareGeometry(step: number, boxSize: number): GridGeometry {
+function squareGeometry(step: number, boxW: number, boxH: number): GridGeometry {
   const points: GridPoint[] = [];
   const lines: GridLine[] = [];
-  for (let v = 0; v <= boxSize + 1e-9; v += step) {
-    const bold = Math.abs(((v / step) % Math.round(50 / step)) * step) < 1e-6 && v > 0;
-    lines.push({ x1: v, y1: 0, x2: v, y2: boxSize, bold });
-    lines.push({ x1: 0, y1: v, x2: boxSize, y2: v, bold });
+  const bigStep = Math.max(step, Math.round(50 / step) * step);
+  for (let x = 0; x <= boxW + 1e-9; x += step) {
+    const bold = x > 0 && Math.abs(x - Math.round(x / bigStep) * bigStep) < 1e-6;
+    lines.push({ x1: x, y1: 0, x2: x, y2: boxH, bold });
   }
-  for (let x = 0; x <= boxSize + 1e-9; x += step) {
-    for (let y = 0; y <= boxSize + 1e-9; y += step) {
+  for (let y = 0; y <= boxH + 1e-9; y += step) {
+    const bold = y > 0 && Math.abs(y - Math.round(y / bigStep) * bigStep) < 1e-6;
+    lines.push({ x1: 0, y1: y, x2: boxW, y2: y, bold });
+  }
+  for (let x = 0; x <= boxW + 1e-9; x += step) {
+    for (let y = 0; y <= boxH + 1e-9; y += step) {
       points.push({ x, y });
     }
   }
   return { points, lines };
 }
 
-function polarGeometry(step: number, boxSize: number): GridGeometry {
-  const cx = boxSize / 2;
-  const cy = boxSize / 2;
-  const maxR = Math.sqrt(2) * cx;
+function polarGeometry(step: number, boxW: number, boxH: number): GridGeometry {
+  const cx = boxW / 2;
+  const cy = boxH / 2;
+  const maxR = Math.hypot(Math.max(cx, boxW - cx), Math.max(cy, boxH - cy));
   const spokes = 12;
   const points: GridPoint[] = [{ x: cx, y: cy }];
   const lines: GridLine[] = [];
@@ -73,7 +77,7 @@ function polarGeometry(step: number, boxSize: number): GridGeometry {
       const theta = (2 * Math.PI * s) / spokes;
       const x = cx + r * Math.cos(theta);
       const y = cy + r * Math.sin(theta);
-      if (x >= -1e-6 && x <= boxSize + 1e-6 && y >= -1e-6 && y <= boxSize + 1e-6) {
+      if (x >= -1e-6 && x <= boxW + 1e-6 && y >= -1e-6 && y <= boxH + 1e-6) {
         points.push({ x, y });
       }
     }
@@ -91,41 +95,40 @@ function polarGeometry(step: number, boxSize: number): GridGeometry {
   return { points, lines };
 }
 
-function triangularGeometry(step: number, boxSize: number): GridGeometry {
+function triangularGeometry(step: number, boxW: number, boxH: number): GridGeometry {
   const rowH = (step * Math.sqrt(3)) / 2;
   const points: GridPoint[] = [];
   let rowIdx = 0;
-  for (let y = 0; y <= boxSize + 1e-9; y += rowH, rowIdx++) {
+  for (let y = 0; y <= boxH + 1e-9; y += rowH, rowIdx++) {
     const offset = (rowIdx % 2) * (step / 2);
-    for (let x = -offset; x <= boxSize + 1e-9; x += step) {
+    for (let x = -offset; x <= boxW + 1e-9; x += step) {
       if (x >= -1e-6) points.push({ x, y });
     }
   }
   const lines: GridLine[] = [];
   // Horizontal rows
-  for (let y = 0; y <= boxSize + 1e-9; y += rowH) {
-    lines.push({ x1: 0, y1: y, x2: boxSize, y2: y });
+  for (let y = 0; y <= boxH + 1e-9; y += rowH) {
+    lines.push({ x1: 0, y1: y, x2: boxW, y2: y });
   }
   // Two diagonal families at ±60°
   const dy = rowH * 2;
   const dx = step;
-  // Slope = ±dy/dx
-  for (let xStart = -2 * boxSize; xStart <= 2 * boxSize; xStart += step / 2) {
-    lines.push({ x1: xStart, y1: 0, x2: xStart + (boxSize / dy) * dx, y2: boxSize });
-    lines.push({ x1: xStart, y1: 0, x2: xStart - (boxSize / dy) * dx, y2: boxSize });
+  for (let xStart = -2 * boxW; xStart <= 2 * boxW; xStart += step / 2) {
+    lines.push({ x1: xStart, y1: 0, x2: xStart + (boxH / dy) * dx, y2: boxH });
+    lines.push({ x1: xStart, y1: 0, x2: xStart - (boxH / dy) * dx, y2: boxH });
   }
   return { points, lines };
 }
 
-function hexGeometry(step: number, boxSize: number): GridGeometry {
+function hexGeometry(step: number, boxW: number, boxH: number): GridGeometry {
   const colSpacing = step * Math.sqrt(3);
   const rowSpacing = step * 1.5;
   const rawPoints: GridPoint[] = [];
   const lines: GridLine[] = [];
-  for (let row = 0; row * rowSpacing - step <= boxSize; row++) {
+  for (let row = 0; row * rowSpacing - step <= boxH; row++) {
     const yCenter = row * rowSpacing;
     const offsetX = (row % 2) * (colSpacing / 2);
-    for (let col = 0; col * colSpacing - offsetX - colSpacing <= boxSize; col++) {
+    for (let col = 0; col * colSpacing - offsetX - colSpacing <= boxW; col++) {
       const xCenter = col * colSpacing - offsetX;
       const vs: GridPoint[] = Array.from({ length: 6 }, (_, k) => {
         const theta = Math.PI / 2 + (Math.PI / 3) * k;
@@ -136,8 +139,8 @@ function hexGeometry(step: number, boxSize: number): GridGeometry {
         const a = vs[k];
         const b = vs[(k + 1) % 6];
         if (
-          (a.x >= -step && a.x <= boxSize + step && a.y >= -step && a.y <= boxSize + step) ||
-          (b.x >= -step && b.x <= boxSize + step && b.y >= -step && b.y <= boxSize + step)
+          (a.x >= -step && a.x <= boxW + step && a.y >= -step && a.y <= boxH + step) ||
+          (b.x >= -step && b.x <= boxW + step && b.y >= -step && b.y <= boxH + step)
         ) {
           lines.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
         }
@@ -146,7 +149,7 @@ function hexGeometry(step: number, boxSize: number): GridGeometry {
   }
   const seen = new Map<string, GridPoint>();
   for (const p of rawPoints) {
-    if (p.x < -1e-6 || p.x > boxSize + 1e-6 || p.y < -1e-6 || p.y > boxSize + 1e-6) continue;
+    if (p.x < -1e-6 || p.x > boxW + 1e-6 || p.y < -1e-6 || p.y > boxH + 1e-6) continue;
     const key = `${Math.round(p.x * 100)},${Math.round(p.y * 100)}`;
     if (!seen.has(key)) seen.set(key, p);
   }
@@ -156,19 +159,20 @@ function hexGeometry(step: number, boxSize: number): GridGeometry {
 export function computeGridGeometry(
   type: GridType,
   step: number,
-  boxSize: number,
+  boxW: number,
+  boxH: number = boxW,
 ): GridGeometry {
   switch (type) {
     case "none":
       return { points: [], lines: [] };
     case "square":
-      return squareGeometry(step, boxSize);
+      return squareGeometry(step, boxW, boxH);
     case "polar":
-      return polarGeometry(step, boxSize);
+      return polarGeometry(step, boxW, boxH);
     case "triangular":
-      return triangularGeometry(step, boxSize);
+      return triangularGeometry(step, boxW, boxH);
     case "hex":
-      return hexGeometry(step, boxSize);
+      return hexGeometry(step, boxW, boxH);
   }
 }
 

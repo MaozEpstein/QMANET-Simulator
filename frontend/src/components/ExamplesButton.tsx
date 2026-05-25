@@ -12,19 +12,17 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type MANETResponse } from "../api/rest";
+import { api } from "../api/rest";
 import { buildPetersenExample } from "../lib/examples";
 import {
   deleteSaved,
   exportJSON,
   importJSON,
   listSaved,
-  saveGraph,
   type SavedGraph,
 } from "../lib/savedGraphs";
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
-import { GraphEditor } from "./GraphEditor";
 
 type CategoryId = "myGraphs" | "starter" | "topology" | "paper" | "stress";
 
@@ -96,7 +94,6 @@ const EXAMPLES: Example[] = [
 
 export function ExamplesButton() {
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"list" | "editor">("list");
   const [loadingStep, setLoadingStep] = useState<LoadingStep>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -106,7 +103,6 @@ export function ExamplesButton() {
   const close = useCallback(() => {
     if (loadingStep) return; // don't dismiss mid-load
     setOpen(false);
-    setView("list");
     setLoadErr(null);
   }, [loadingStep]);
   const {
@@ -185,23 +181,11 @@ export function ExamplesButton() {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (view === "editor") setView("list");
-        else close();
-      }
+      if (e.key === "Escape") close();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, close, view]);
-
-  const handleEditorSave = useCallback(
-    (payload: MANETResponse, name: string, description: string) => {
-      saveGraph(name, description, payload);
-      refreshSaved();
-      setView("list");
-    },
-    [refreshSaved],
-  );
+  }, [open, close]);
 
   const handleDeleteSaved = useCallback(
     (saved: SavedGraph) => {
@@ -306,48 +290,31 @@ export function ExamplesButton() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: palette.textPrimary }}>
-                  {view === "editor" ? "עורך גרף" : "גרפים לדוגמה"}
+                  גרפים לדוגמה
                 </h2>
                 <div style={{ fontSize: 12, color: palette.textMuted, marginTop: 4 }}>
-                  {view === "editor"
-                    ? "בנה גרף משלך — קודקודים, קשתות, מיקומים. שמירה תוסיף אותו ל-'הגרפים שלי'."
-                    : "בחירה מהירה של דאטהסט קלאסי כדי לראות את הצינור בפעולה"}
+                  בחירה מהירה של דאטהסט קלאסי כדי לראות את הצינור בפעולה. ליצירה ידנית — חזרה לשלב 1.
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {view === "list" ? (
-                  <>
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      style={headerSecondaryStyle}
-                      title="ייבא גרף מקובץ JSON"
-                    >
-                      ⤒ ייבא JSON
-                    </button>
-                    <button
-                      onClick={() => setView("editor")}
-                      style={headerPrimaryStyle}
-                      title="פתח עורך גרף חדש"
-                    >
-                      + צור גרף
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="application/json,.json"
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) handleImportFile(f);
-                        e.target.value = "";
-                      }}
-                    />
-                  </>
-                ) : (
-                  <button onClick={() => setView("list")} style={headerSecondaryStyle}>
-                    ← חזרה לרשימה
-                  </button>
-                )}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  style={headerSecondaryStyle}
+                  title="ייבא גרף מקובץ JSON"
+                >
+                  ⤒ ייבא JSON
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImportFile(f);
+                    e.target.value = "";
+                  }}
+                />
                 <button
                   onClick={close}
                   aria-label="סגור"
@@ -388,10 +355,7 @@ export function ExamplesButton() {
               </div>
             )}
 
-            {view === "editor" ? (
-              <GraphEditor onSave={handleEditorSave} onCancel={() => setView("list")} />
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
                 {CATEGORIES.map((cat) => {
                   const items =
                     cat.id === "myGraphs"
@@ -442,8 +406,7 @@ export function ExamplesButton() {
                     </section>
                   );
                 })}
-              </div>
-            )}
+            </div>
           </div>
         </div>
       )}
@@ -646,17 +609,6 @@ const buttonStyle: React.CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
   transition: "all 140ms ease",
-};
-
-const headerPrimaryStyle: React.CSSProperties = {
-  padding: "7px 12px",
-  borderRadius: 6,
-  border: "none",
-  background: palette.queraPurple,
-  color: "#fff",
-  fontSize: 12.5,
-  fontWeight: 600,
-  cursor: "pointer",
 };
 
 const headerSecondaryStyle: React.CSSProperties = {

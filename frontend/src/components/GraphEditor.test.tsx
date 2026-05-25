@@ -106,7 +106,7 @@ describe("GraphEditor", () => {
     clickAtUm(svg, 20, 50);
     clickAtUm(svg, 80, 50);
 
-    fireEvent.click(screen.getByRole("button", { name: /שמור/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^שמור/ }));
 
     const nameInput = screen.getByPlaceholderText(/רשת משולשת/) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "My Pair" } });
@@ -121,7 +121,7 @@ describe("GraphEditor", () => {
     expect(name).toBe("My Pair");
     expect(payload.graph.n_nodes).toBe(2);
     expect(payload.graph.node_positions?.map((p) => p.id)).toEqual([0, 1]);
-    expect(payload.config.box_size).toBe(100);
+    expect(payload.config.box_size).toBe(200);
   });
 
   it("blocks save and shows an alert when only one node is placed", () => {
@@ -132,7 +132,7 @@ describe("GraphEditor", () => {
     stubBoundingRect(svg);
 
     clickAtUm(svg, 30, 30);
-    fireEvent.click(screen.getByRole("button", { name: /^שמור$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^שמור/ }));
 
     expect(alertSpy).toHaveBeenCalled();
     expect(alertSpy.mock.calls[0][0]).toContain("לפחות 2");
