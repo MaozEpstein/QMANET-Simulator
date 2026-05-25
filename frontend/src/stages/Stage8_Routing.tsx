@@ -261,7 +261,7 @@ export function Stage8_Routing() {
         </div>
       </Panel>
 
-      <Panel title="הסבר" subtitle="הקשר בין ה-MIS הקוונטי לניתוב המעשי">
+      <Panel title="הסבר" subtitle="הקשר בין ה-MIS הקוונטי לניתוב המעשי" collapsible collapseGroup="explanations">
         <p style={{ margin: 0, color: palette.textSecondary, lineHeight: 1.7 }}>
           ה-backbone הוא קליק ב-G — כל זוג מכשירים בו רואים אחד את השני בטווח התקשורת.
           האלגוריתם בוחר ראשית את ה-backbone כ-"highway" של הניתוב; אם המסלול עובר דרכו —{" "}

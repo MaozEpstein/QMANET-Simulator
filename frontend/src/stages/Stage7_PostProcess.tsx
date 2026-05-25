@@ -359,7 +359,7 @@ export function Stage7_PostProcess() {
         </Panel>
       )}
 
-      <Panel title="הסבר" subtitle="למה צריך post-processing אחרי מדידה">
+      <Panel title="הסבר" subtitle="למה צריך post-processing אחרי מדידה" collapsible collapseGroup="explanations">
         <p style={{ margin: 0, color: palette.textSecondary, lineHeight: 1.7 }}>
           המעבר האדיאבטי לא מושלם — diabatic transitions ורעש decoherence (T2*≈5.8µs) גורמים
           ל-shot להפר את אילוץ ה-IS (שני אטומים סמוכים שניהם ב-|r⟩). פתרון Ebadi 2022:

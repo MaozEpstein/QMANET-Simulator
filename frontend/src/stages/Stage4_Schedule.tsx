@@ -554,6 +554,8 @@ export function Stage4_Schedule() {
       <Panel
         title="הסבר"
         subtitle="הקשר בין הפרוטוקול האדיאבטי לחיפוש MIS"
+        collapsible
+        collapseGroup="explanations"
       >
         <p style={{ margin: 0, color: palette.textSecondary, lineHeight: 1.7 }}>
           הרעיון: כאשר{" "}

@@ -82,7 +82,7 @@ export function Stage1_MANET() {
         </div>
       </Panel>
 
-      <Panel title="הסבר" subtitle="הקשר בין רשת ניידת למודל הגרף">
+      <Panel title="הסבר" subtitle="הקשר בין רשת ניידת למודל הגרף" collapsible collapseGroup="explanations">
         <p style={{ margin: 0, color: palette.textSecondary, lineHeight: 1.7 }}>
           ברשת MANET שני מכשירים יכולים לתקשר ישירות אם המרחק הפיזי ביניהם קטן מטווח
           השידור של האנטנה. המודל המתמטי הסטנדרטי לכך הוא <em>Random Geometric Graph</em>:

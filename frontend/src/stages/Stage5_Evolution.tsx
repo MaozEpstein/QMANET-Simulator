@@ -233,6 +233,8 @@ export function Stage5_Evolution() {
       <Panel
         title="הסבר"
         subtitle="מה רואים בגרף"
+        collapsible
+        collapseGroup="explanations"
       >
         <p style={{ margin: 0, color: palette.textSecondary, lineHeight: 1.7 }}>
           ב-t=0 כל האטומים ב-|g⟩ ולכן{" "}

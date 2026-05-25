@@ -269,6 +269,8 @@ export function Stage6_Measurement() {
         <Panel
           title="הסבר"
           subtitle="מה אנו מודדים"
+          collapsible
+          collapseGroup="explanations"
         >
           <p style={{ margin: 0, color: palette.textSecondary, lineHeight: 1.7 }}>
             המצב הסופי{" "}

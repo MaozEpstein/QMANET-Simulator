@@ -185,7 +185,7 @@ export function Stage3_Embedding() {
         </Panel>
       )}
 
-      <Panel title="הסבר" subtitle="הקשר בין הגאומטריה למפעיל Rydberg של Aquila">
+      <Panel title="הסבר" subtitle="הקשר בין הגאומטריה למפעיל Rydberg של Aquila" collapsible collapseGroup="explanations">
         <p style={{ margin: 0, color: palette.textSecondary, lineHeight: 1.7 }}>
           האילוץ של Aquila: שני אטומים במרחק קטן מ-<span dir="ltr" className="mono">R_b</span> לא
           יכולים להיות שניהם במצב Rydberg. כלומר ה-MIS שמצא הסולבר על מערך האטומים שווה ל-MIS של
