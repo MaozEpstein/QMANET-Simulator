@@ -151,7 +151,7 @@ export function GraphView({
         ) {
           return palette.queraPurpleGlow;
         }
-        return palette.textMuted;
+        return palette.textPrimary;
       })
       .attr("stroke-opacity", (d) => {
         if (
@@ -161,7 +161,7 @@ export function GraphView({
           highlight.has(d.target)
         )
           return 0.95;
-        return 0.45;
+        return 0.75;
       })
       .attr("stroke-width", (d) => {
         if (
@@ -170,8 +170,8 @@ export function GraphView({
           highlight.has(d.source) &&
           highlight.has(d.target)
         )
-          return 2.5;
-        return 1.2;
+          return 2.8;
+        return 1.8;
       });
 
     // Nodes

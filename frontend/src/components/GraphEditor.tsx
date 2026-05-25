@@ -186,14 +186,34 @@ export function GraphEditor({ onSave, onCancel, externalValue, onCommit }: Props
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const ctrlOrMeta = e.ctrlKey || e.metaKey;
-      if (!ctrlOrMeta) return;
-      if (e.key !== "z" && e.key !== "Z") return;
-      if (e.shiftKey) return;
       const ae = document.activeElement;
       if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
-      e.preventDefault();
-      undo();
+
+      // Tool shortcuts — use event.code so the same physical keys work in
+      // both English ("W","E","D") and Hebrew ("'","ק","ג") layouts.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.code === "KeyE") {
+          e.preventDefault();
+          setTool("addNode");
+          return;
+        }
+        if (e.code === "KeyW") {
+          e.preventDefault();
+          setTool("addEdge");
+          return;
+        }
+        if (e.code === "KeyD") {
+          e.preventDefault();
+          setTool("delete");
+          return;
+        }
+      }
+
+      // Undo: Ctrl/Cmd+Z (Z key by physical position, layout-independent).
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.code === "KeyZ") {
+        e.preventDefault();
+        undo();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -702,10 +722,10 @@ function Toolbar({
 }) {
   const activeGridLabel = GRID_TYPES.find((g) => g.id === gridType)?.label ?? "רשת";
   const items: { id: Tool; label: string; hint: string }[] = [
-    { id: "addNode", label: "➕ קודקוד", hint: "קליק על הקנבס מוסיף קודקוד" },
-    { id: "addEdge", label: "🔗 קשת", hint: "קליק על שני קודקודים מוסיף קשת" },
+    { id: "addNode", label: "➕ קודקוד (E)", hint: "קליק על הקנבס מוסיף קודקוד. קיצור: E" },
+    { id: "addEdge", label: "🔗 קשת (W)", hint: "קליק על שני קודקודים מוסיף קשת. קיצור: W" },
     { id: "move", label: "✋ הזז", hint: "גרור קודקוד למיקום חדש" },
-    { id: "delete", label: "🗑 מחק", hint: "קליק על קודקוד / קשת ימחק אותם" },
+    { id: "delete", label: "🗑 מחק (D)", hint: "קליק על קודקוד / קשת ימחק אותם. קיצור: D" },
   ];
   return (
     <div
@@ -1072,9 +1092,9 @@ function EdgesLayer({
               y1={pa.py}
               x2={pb.px}
               y2={pb.py}
-              stroke={palette.textMuted}
-              strokeOpacity={0.55}
-              strokeWidth={1.4}
+              stroke={palette.textPrimary}
+              strokeOpacity={0.85}
+              strokeWidth={2.4}
               strokeLinecap="round"
               pointerEvents="none"
             />

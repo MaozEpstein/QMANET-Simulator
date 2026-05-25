@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import type { MANETResponse } from "../api/rest";
 import { ExportButton } from "../components/ExportButton";
 import { GraphEditor } from "../components/GraphEditor";
+import { ImportButton } from "../components/ImportButton";
 import { Panel } from "../components/Panel";
 import { saveGraph } from "../lib/savedGraphs";
 import { usePipeline } from "../store/pipeline";
@@ -50,7 +51,14 @@ export function Stage1_MANET() {
       <Panel
         title="שלב 1 · בניית גרף MANET"
         subtitle="בנה את הגרף ידנית, טען תבנית מוכנה, או חבר אוטומטית לפי טווח תקשורת. כל שינוי מתעדכן מיידית לצינור."
-        right={<ExportButton filename="manet" data={manet} />}
+        right={
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <ImportButton
+              onImported={(saved) => handleCommit(saved.payload)}
+            />
+            <ExportButton filename="manet" data={manet} />
+          </div>
+        }
       >
         <GraphEditor
           externalValue={manet}

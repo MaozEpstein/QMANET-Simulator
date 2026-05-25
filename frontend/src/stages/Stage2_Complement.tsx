@@ -92,8 +92,8 @@ export function Stage2_Complement() {
               highlight={cliqueSet}
               emphasizeHighlightedEdges
               caption="G  (MANET)"
-              width={520}
-              height={460}
+              width={680}
+              height={500}
             />
           </div>
 
@@ -102,17 +102,20 @@ export function Stage2_Complement() {
               <strong style={{ color: palette.textPrimary }}>Ḡ</strong> — הגרף המשלים
               <br />
               <span style={{ fontSize: 11, color: palette.textMuted }}>
-                קודקודים זוהרים = MIS מקסימלי. אין אף קשת ביניהם — בדיוק המגדיר.
+                אותם מיקומים, רק הקשתות התהפכו. קודקודים זוהרים = MIS מקסימלי — אין אף קשת ביניהם.
               </span>
             </div>
             {mis && (
               <GraphView
-                graph={mis.complement}
-                mode="force"
+                graph={{
+                  ...mis.complement,
+                  node_positions: manet.graph.node_positions,
+                }}
+                mode="geometric"
                 highlight={cliqueSet}
                 caption="Ḡ  (complement)"
-                width={520}
-                height={460}
+                width={680}
+                height={500}
               />
             )}
           </div>

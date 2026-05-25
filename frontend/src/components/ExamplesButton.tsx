@@ -11,13 +11,12 @@
  * after we decide which graphs make the cut.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/rest";
-import { buildPetersenExample } from "../lib/examples";
+import { buildC4Example, buildPetersenExample } from "../lib/examples";
 import {
   deleteSaved,
   exportJSON,
-  importJSON,
   listSaved,
   type SavedGraph,
 } from "../lib/savedGraphs";
@@ -81,6 +80,16 @@ const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?:
 
 const EXAMPLES: Example[] = [
   {
+    id: "c4",
+    name: "ריבוע (C₄)",
+    englishName: "4-cycle",
+    description:
+      "4 קודקודים מסודרים על ריבוע, מחוברים סביב הרים בלבד. המשלים: שני האלכסונים בלבד (זיווג מושלם). α(G)=2, MaxClique=2 — הדוגמה הפשוטה ביותר לראות בה את הקשר MIS↔קליק.",
+    n: 4,
+    category: "starter",
+    build: buildC4Example,
+  },
+  {
     id: "petersen",
     name: "גרף פטרסן",
     englishName: "Petersen graph",
@@ -99,7 +108,6 @@ export function ExamplesButton() {
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [savedTick, setSavedTick] = useState(0);
   const refreshSaved = useCallback(() => setSavedTick((t) => t + 1), []);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const close = useCallback(() => {
     if (loadingStep) return; // don't dismiss mid-load
     setOpen(false);
@@ -211,20 +219,6 @@ export function ExamplesButton() {
     URL.revokeObjectURL(url);
   }, []);
 
-  const handleImportFile = useCallback(
-    async (file: File) => {
-      try {
-        const text = await file.text();
-        importJSON(text);
-        refreshSaved();
-        setLoadErr(null);
-      } catch (e) {
-        setLoadErr(`ייבוא נכשל: ${(e as Error).message}`);
-      }
-    },
-    [refreshSaved],
-  );
-
   return (
     <>
       <button
@@ -297,24 +291,6 @@ export function ExamplesButton() {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  style={headerSecondaryStyle}
-                  title="ייבא גרף מקובץ JSON"
-                >
-                  ⤒ ייבא JSON
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/json,.json"
-                  style={{ display: "none" }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleImportFile(f);
-                    e.target.value = "";
-                  }}
-                />
                 <button
                   onClick={close}
                   aria-label="סגור"
@@ -611,13 +587,3 @@ const buttonStyle: React.CSSProperties = {
   transition: "all 140ms ease",
 };
 
-const headerSecondaryStyle: React.CSSProperties = {
-  padding: "7px 12px",
-  borderRadius: 6,
-  border: `1px solid ${palette.queraPurpleSoft}`,
-  background: "transparent",
-  color: palette.textSecondary,
-  fontSize: 12.5,
-  fontWeight: 600,
-  cursor: "pointer",
-};

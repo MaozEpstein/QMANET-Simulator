@@ -4,9 +4,8 @@
  * /api/manet/generate. Edges and positions are hand-specified, so the
  * (otherwise random) RGG generator is bypassed entirely.
  *
- * The positions live in the same 100×100 µm box the live generator uses,
- * so downstream stages (embedding, blockade rings, etc.) render without any
- * special handling.
+ * Positions live in the editor's 200×100 µm workspace; presets center
+ * themselves at (100, 50) so they sit in the middle of the wide canvas.
  */
 
 import type { MANETResponse } from "../api/rest";
@@ -22,8 +21,38 @@ import type { MANETResponse } from "../api/rest";
  *
  * α(Petersen) = 4. MaxClique(Petersen) = 2 (the graph is triangle-free).
  */
+/**
+ * C₄ — the 4-cycle (square). N=4, 4 edges around the rim.
+ *
+ * The simplest non-trivial graph where the complement is visually obvious:
+ * remove the rim edges, keep the two diagonals — i.e. the complement of
+ * C₄ is exactly a perfect matching on 4 vertices (two disjoint edges).
+ *
+ * α(C₄) = 2 (pick any two opposite corners). MaxClique(C₄) = 2 (it's
+ * triangle-free). Pedagogically perfect for showing the MIS↔clique
+ * relationship between G and its complement.
+ */
+export function buildC4Example(): MANETResponse {
+  const positions = [
+    { id: 0, x: 70, y: 20 },
+    { id: 1, x: 130, y: 20 },
+    { id: 2, x: 130, y: 80 },
+    { id: 3, x: 70, y: 80 },
+  ];
+  const edges: [number, number][] = [
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 0],
+  ];
+  return {
+    graph: { n_nodes: 4, edges, node_positions: positions },
+    config: { n_nodes: 4, box_size: 200, comm_radius: 60, seed: null },
+  };
+}
+
 export function buildPetersenExample(): MANETResponse {
-  const cx = 50;
+  const cx = 100;
   const cy = 50;
   const outerR = 38;
   const innerR = 16;
@@ -58,7 +87,7 @@ export function buildPetersenExample(): MANETResponse {
       // We expose plausible MANET-style parameters so the Stage 1 sidebar
       // doesn't show empty fields.
       n_nodes: 10,
-      box_size: 100,
+      box_size: 200,
       comm_radius: 30,
       seed: null,
     },

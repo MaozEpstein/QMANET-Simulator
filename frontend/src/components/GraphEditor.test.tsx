@@ -89,10 +89,10 @@ describe("GraphEditor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /חבר אוטומטית/ }));
 
-    // Edge lines use palette.textMuted (#5d6885); grid lines use a different
-    // color and the transparent hitbox uses "transparent".
+    // Edge lines use palette.textPrimary (#e8ecf5); grid lines use a different
+    // color (warm amber #c79b5a) and the transparent hitbox uses "transparent".
     const edgeLines = Array.from(container.querySelectorAll("line")).filter(
-      (l) => l.getAttribute("stroke") === "#5d6885",
+      (l) => l.getAttribute("stroke") === "#e8ecf5",
     );
     expect(edgeLines.length).toBe(2);
   });
