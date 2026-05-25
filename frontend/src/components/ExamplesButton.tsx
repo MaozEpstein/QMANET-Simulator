@@ -11,11 +11,20 @@
  * after we decide which graphs make the cut.
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { api } from "../api/rest";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, type MANETResponse } from "../api/rest";
 import { buildPetersenExample } from "../lib/examples";
+import {
+  deleteSaved,
+  exportJSON,
+  importJSON,
+  listSaved,
+  saveGraph,
+  type SavedGraph,
+} from "../lib/savedGraphs";
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
+import { GraphEditor } from "./GraphEditor";
 
 type CategoryId = "myGraphs" | "starter" | "topology" | "paper" | "stress";
 
@@ -39,6 +48,7 @@ interface Example {
   paperRef?: string;       // e.g. "Ebadi 2022 §6.1"
   status?: "available" | "soon";
   build?: () => ReturnType<typeof buildPetersenExample>;
+  saved?: SavedGraph;      // present only for entries loaded from localStorage
 }
 
 const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?: string }[] = [
@@ -86,12 +96,17 @@ const EXAMPLES: Example[] = [
 
 export function ExamplesButton() {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"list" | "editor">("list");
   const [loadingStep, setLoadingStep] = useState<LoadingStep>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [savedTick, setSavedTick] = useState(0);
+  const refreshSaved = useCallback(() => setSavedTick((t) => t + 1), []);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const close = useCallback(() => {
     if (loadingStep) return; // don't dismiss mid-load
     setOpen(false);
+    setView("list");
     setLoadErr(null);
   }, [loadingStep]);
   const {
@@ -102,6 +117,27 @@ export function ExamplesButton() {
     resetSimulation,
     setStage,
   } = usePipeline();
+
+  const savedGraphs = useMemo<SavedGraph[]>(() => {
+    if (!open) return [];
+    // savedTick is referenced so the list re-reads when we mutate localStorage.
+    void savedTick;
+    return listSaved();
+  }, [open, savedTick]);
+
+  const savedAsExamples = useMemo<Example[]>(
+    () =>
+      savedGraphs.map((g) => ({
+        id: `saved:${g.id}`,
+        name: g.name,
+        description: g.description || "גרף שיצרת בעורך.",
+        n: g.payload.graph.n_nodes,
+        category: "myGraphs",
+        build: () => g.payload,
+        saved: g,
+      })),
+    [savedGraphs],
+  );
 
   // Pre-load the *cheap* deterministic stages (Complement → Embedding →
   // Schedule). Stage 5 (Evolution) is the stiff one and we deliberately
@@ -149,11 +185,61 @@ export function ExamplesButton() {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") {
+        if (view === "editor") setView("list");
+        else close();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, close]);
+  }, [open, close, view]);
+
+  const handleEditorSave = useCallback(
+    (payload: MANETResponse, name: string, description: string) => {
+      saveGraph(name, description, payload);
+      refreshSaved();
+      setView("list");
+    },
+    [refreshSaved],
+  );
+
+  const handleDeleteSaved = useCallback(
+    (saved: SavedGraph) => {
+      if (!window.confirm(`למחוק את "${saved.name}"?`)) return;
+      deleteSaved(saved.id);
+      refreshSaved();
+    },
+    [refreshSaved],
+  );
+
+  const handleExportSaved = useCallback((saved: SavedGraph) => {
+    const text = exportJSON(saved.id);
+    const slug =
+      saved.name.replace(/[^\w֐-׿.-]+/g, "_").slice(0, 40) || "graph";
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug}.qsim.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleImportFile = useCallback(
+    async (file: File) => {
+      try {
+        const text = await file.text();
+        importJSON(text);
+        refreshSaved();
+        setLoadErr(null);
+      } catch (e) {
+        setLoadErr(`ייבוא נכשל: ${(e as Error).message}`);
+      }
+    },
+    [refreshSaved],
+  );
 
   return (
     <>
@@ -212,7 +298,7 @@ export function ExamplesButton() {
             <header
               style={{
                 display: "flex",
-                alignItems: "baseline",
+                alignItems: "center",
                 justifyContent: "space-between",
                 marginBottom: 18,
                 gap: 12,
@@ -220,31 +306,68 @@ export function ExamplesButton() {
             >
               <div>
                 <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: palette.textPrimary }}>
-                  גרפים לדוגמה
+                  {view === "editor" ? "עורך גרף" : "גרפים לדוגמה"}
                 </h2>
                 <div style={{ fontSize: 12, color: palette.textMuted, marginTop: 4 }}>
-                  בחירה מהירה של דאטהסט קלאסי כדי לראות את הצינור בפעולה
+                  {view === "editor"
+                    ? "בנה גרף משלך — קודקודים, קשתות, מיקומים. שמירה תוסיף אותו ל-'הגרפים שלי'."
+                    : "בחירה מהירה של דאטהסט קלאסי כדי לראות את הצינור בפעולה"}
                 </div>
               </div>
-              <button
-                onClick={close}
-                aria-label="סגור"
-                disabled={loadingStep !== null}
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 6,
-                  border: `1px solid ${palette.queraPurpleSoft}`,
-                  background: "transparent",
-                  color: palette.textSecondary,
-                  fontSize: 16,
-                  cursor: loadingStep ? "not-allowed" : "pointer",
-                  opacity: loadingStep ? 0.4 : 1,
-                  lineHeight: 1,
-                }}
-              >
-                ×
-              </button>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {view === "list" ? (
+                  <>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      style={headerSecondaryStyle}
+                      title="ייבא גרף מקובץ JSON"
+                    >
+                      ⤒ ייבא JSON
+                    </button>
+                    <button
+                      onClick={() => setView("editor")}
+                      style={headerPrimaryStyle}
+                      title="פתח עורך גרף חדש"
+                    >
+                      + צור גרף
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/json,.json"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleImportFile(f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </>
+                ) : (
+                  <button onClick={() => setView("list")} style={headerSecondaryStyle}>
+                    ← חזרה לרשימה
+                  </button>
+                )}
+                <button
+                  onClick={close}
+                  aria-label="סגור"
+                  disabled={loadingStep !== null}
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    border: `1px solid ${palette.queraPurpleSoft}`,
+                    background: "transparent",
+                    color: palette.textSecondary,
+                    fontSize: 16,
+                    cursor: loadingStep ? "not-allowed" : "pointer",
+                    opacity: loadingStep ? 0.4 : 1,
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             </header>
 
             {loadErr && (
@@ -265,53 +388,62 @@ export function ExamplesButton() {
               </div>
             )}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-              {CATEGORIES.map((cat) => {
-                const items = EXAMPLES.filter((e) => e.category === cat.id);
-                return (
-                  <section key={cat.id}>
-                    <div style={{ marginBottom: 10 }}>
-                      <h3
-                        style={{
-                          margin: 0,
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: palette.queraPurpleGlow,
-                          textTransform: "uppercase",
-                          letterSpacing: 0.6,
-                        }}
-                      >
-                        {cat.title}
-                      </h3>
-                      <div style={{ fontSize: 11.5, color: palette.textMuted, marginTop: 2 }}>
-                        {cat.subtitle}
+            {view === "editor" ? (
+              <GraphEditor onSave={handleEditorSave} onCancel={() => setView("list")} />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+                {CATEGORIES.map((cat) => {
+                  const items =
+                    cat.id === "myGraphs"
+                      ? savedAsExamples
+                      : EXAMPLES.filter((e) => e.category === cat.id);
+                  return (
+                    <section key={cat.id}>
+                      <div style={{ marginBottom: 10 }}>
+                        <h3
+                          style={{
+                            margin: 0,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: palette.queraPurpleGlow,
+                            textTransform: "uppercase",
+                            letterSpacing: 0.6,
+                          }}
+                        >
+                          {cat.title}
+                        </h3>
+                        <div style={{ fontSize: 11.5, color: palette.textMuted, marginTop: 2 }}>
+                          {cat.subtitle}
+                        </div>
                       </div>
-                    </div>
-                    {items.length === 0 ? (
-                      <EmptySlot hint={cat.emptyHint} />
-                    ) : (
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                          gap: 10,
-                        }}
-                      >
-                        {items.map((ex) => (
-                          <ExampleCard
-                            key={ex.id}
-                            example={ex}
-                            onLoad={loadExample}
-                            loading={loadingId === ex.id ? loadingStep : null}
-                            disabled={loadingStep !== null && loadingId !== ex.id}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
+                      {items.length === 0 ? (
+                        <EmptySlot hint={cat.emptyHint} />
+                      ) : (
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                            gap: 10,
+                          }}
+                        >
+                          {items.map((ex) => (
+                            <ExampleCard
+                              key={ex.id}
+                              example={ex}
+                              onLoad={loadExample}
+                              onDelete={ex.saved ? () => handleDeleteSaved(ex.saved!) : undefined}
+                              onExport={ex.saved ? () => handleExportSaved(ex.saved!) : undefined}
+                              loading={loadingId === ex.id ? loadingStep : null}
+                              disabled={loadingStep !== null && loadingId !== ex.id}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -322,11 +454,15 @@ export function ExamplesButton() {
 function ExampleCard({
   example,
   onLoad,
+  onDelete,
+  onExport,
   loading,
   disabled,
 }: {
   example: Example;
   onLoad: (ex: Example) => void;
+  onDelete?: () => void;
+  onExport?: () => void;
   loading: LoadingStep;
   disabled: boolean;
 }) {
@@ -411,27 +547,61 @@ function ExampleCard({
           </div>
         </div>
       )}
-      <button
-        disabled={soon || disabled || isLoading}
-        onClick={() => onLoad(example)}
-        style={{
-          marginTop: 4,
-          padding: "6px 12px",
-          background: soon || disabled ? "transparent" : palette.queraPurple,
-          color: soon || disabled ? palette.textMuted : "#fff",
-          border: soon || disabled ? `1px dashed ${palette.queraPurpleSoft}` : "none",
-          borderRadius: 6,
-          fontSize: 12,
-          fontWeight: 600,
-          cursor: soon || disabled || isLoading ? "not-allowed" : "pointer",
-          alignSelf: "flex-start",
-          opacity: disabled ? 0.5 : 1,
-        }}
-      >
-        {soon ? "תיכף" : isLoading ? "טוען…" : "טען"}
-      </button>
+      <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+        <button
+          disabled={soon || disabled || isLoading}
+          onClick={() => onLoad(example)}
+          style={{
+            padding: "6px 12px",
+            background: soon || disabled ? "transparent" : palette.queraPurple,
+            color: soon || disabled ? palette.textMuted : "#fff",
+            border: soon || disabled ? `1px dashed ${palette.queraPurpleSoft}` : "none",
+            borderRadius: 6,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: soon || disabled || isLoading ? "not-allowed" : "pointer",
+            opacity: disabled ? 0.5 : 1,
+          }}
+        >
+          {soon ? "תיכף" : isLoading ? "טוען…" : "טען"}
+        </button>
+        {onExport && (
+          <button
+            onClick={onExport}
+            disabled={isLoading}
+            title="ייצא קובץ JSON"
+            style={cardSecondaryBtn(isLoading)}
+          >
+            ⤓ ייצא
+          </button>
+        )}
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            disabled={isLoading}
+            title="מחק את הגרף הזה"
+            style={{ ...cardSecondaryBtn(isLoading), color: palette.err, borderColor: palette.err }}
+          >
+            🗑 מחק
+          </button>
+        )}
+      </div>
     </div>
   );
+}
+
+function cardSecondaryBtn(isLoading: boolean): React.CSSProperties {
+  return {
+    padding: "6px 10px",
+    background: "transparent",
+    color: palette.textSecondary,
+    border: `1px solid ${palette.queraPurpleSoft}`,
+    borderRadius: 6,
+    fontSize: 11.5,
+    fontWeight: 600,
+    cursor: isLoading ? "not-allowed" : "pointer",
+    opacity: isLoading ? 0.5 : 1,
+  };
 }
 
 function EmptySlot({ hint }: { hint?: string }) {
@@ -476,4 +646,26 @@ const buttonStyle: React.CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
   transition: "all 140ms ease",
+};
+
+const headerPrimaryStyle: React.CSSProperties = {
+  padding: "7px 12px",
+  borderRadius: 6,
+  border: "none",
+  background: palette.queraPurple,
+  color: "#fff",
+  fontSize: 12.5,
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+const headerSecondaryStyle: React.CSSProperties = {
+  padding: "7px 12px",
+  borderRadius: 6,
+  border: `1px solid ${palette.queraPurpleSoft}`,
+  background: "transparent",
+  color: palette.textSecondary,
+  fontSize: 12.5,
+  fontWeight: 600,
+  cursor: "pointer",
 };
