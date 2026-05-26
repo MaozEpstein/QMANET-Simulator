@@ -14,9 +14,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/rest";
 import {
+  buildBarabasiAlbertExample,
   buildBernienChain9Example,
   buildC4Example,
   buildC7HardExample,
+  buildDenseManetExample,
+  buildErdosRenyiExample,
   buildGrotzschExample,
   buildHeawoodExample,
   buildK33Example,
@@ -25,10 +28,15 @@ import {
   buildKings4x4Example,
   buildManetRGG12Example,
   buildMobiusKantorExample,
+  buildPathP8Example,
   buildPetersenExample,
   buildQ3Example,
+  buildRandomMessyExample,
+  buildSparseDisconnectedManetExample,
   buildTriangularPrismExample,
   buildTuran93Example,
+  buildTwoTrianglesExample,
+  buildUrbanClustersExample,
 } from "../lib/examples";
 import {
   deleteSaved,
@@ -39,7 +47,7 @@ import {
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
 
-type CategoryId = "myGraphs" | "starter" | "topology" | "paper" | "stress";
+type CategoryId = "myGraphs" | "starter" | "topology" | "paper" | "chaotic" | "stress";
 
 type LoadingStep = "complement" | "embed" | "schedule" | null;
 
@@ -86,6 +94,11 @@ const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?:
     id: "paper",
     title: "רפרודוקציה ממאמרים",
     subtitle: "אותם פרמטרים כמו ב-Ebadi 2022 / Bernien 2017",
+  },
+  {
+    id: "chaotic",
+    title: "לא סימטרי",
+    subtitle: "גרפים אקראיים — בנצ'מרק הוגן ללא סימטריה",
   },
   {
     id: "stress",
@@ -156,6 +169,16 @@ const EXAMPLES: Example[] = [
     build: buildK5Example,
   },
   {
+    id: "path-p8",
+    name: "שרשרת P₈",
+    englishName: "Path graph P₈",
+    description:
+      "8 אטומים בשורה ישרה, קשתות בין שכנים בלבד. α=4 (כל קודקוד שני), ω=2. הן SA והן הקוונטי פותרים תוך מילישנייה — baseline 'איך נראית הצלחה' להשוואה מול גרפים קשים יותר.",
+    n: 8,
+    category: "starter",
+    build: buildPathP8Example,
+  },
+  {
     id: "kings3x3",
     name: "King's 3×3 (Ebadi 2022)",
     englishName: "King's graph 3×3",
@@ -198,6 +221,39 @@ const EXAMPLES: Example[] = [
     category: "paper",
     paperRef: "MANET RGG · אבסטרקט הפרויקט",
     build: buildManetRGG12Example,
+  },
+  {
+    id: "manet-urban-clusters",
+    name: "MANET עירוני — אשכולות",
+    englishName: "Urban-cluster MANET (3 cliques + bridges)",
+    description:
+      "16 אטומים מחולקים ל-3 אשכולות צפופים (K₅, K₅, K₆) עם 3 גשרים בין-אשכוליים. הטופולוגיה האופיינית של 'רכבים סביב צמתים' או 'חיילים סביב מפקדים'. ω(G)=6, ובדיקה אמיתית האם backbone-קליק עוזר בניתוב יותר מ-CDS קלאסי (Stage 8).",
+    n: 16,
+    category: "paper",
+    paperRef: "MANET — clustered topology",
+    build: buildUrbanClustersExample,
+  },
+  {
+    id: "manet-sparse-disconnected",
+    name: "MANET דליל ומנותק",
+    englishName: "Sparse disconnected MANET",
+    description:
+      "15 אטומים בפיזור אקראי עם R=22 (קטן) → ה-RGG מתפצל ל-2-3 רכיבים. מבחן ייחודי ל-fallback של Stage 8: יש זוגות (src, dst) שלא ניתן להגיע ביניהם בכלל. צופים `n_via_fallback > 0` או `n_reachable_pairs < n(n-1)`.",
+    n: 15,
+    category: "paper",
+    paperRef: "MANET — connectivity edge case",
+    build: buildSparseDisconnectedManetExample,
+  },
+  {
+    id: "manet-dense",
+    name: "MANET צפוף",
+    englishName: "Dense MANET",
+    description:
+      "14 אטומים, R=60 (גדול) → ~70% מהזוגות בטווח. ω(G) גבוה, n_max_cliques יוצא ענק, ו-embedding fidelity יורד דרמטית. ה-stress test שמראה איפה החומרה ה-UDG נכשלת מול logical graph דחוס.",
+    n: 14,
+    category: "paper",
+    paperRef: "MANET — high-density edge case",
+    build: buildDenseManetExample,
   },
   {
     id: "turan-9-3",
@@ -249,6 +305,48 @@ const EXAMPLES: Example[] = [
     n: 16,
     category: "topology",
     build: buildMobiusKantorExample,
+  },
+  {
+    id: "erdos-renyi-11",
+    name: "Erdős–Rényi G(11, 0.4)",
+    englishName: "Erdős–Rényi random graph",
+    description:
+      "גרף אקראי קלאסי: 11 קודקודים, כל זוג מקבל קשת בהסתברות 0.4 (seed=2026). הסטנדרט בכל מאמר באופטימיזציה — אין סימטריה, אין מבנה. השוואה הוגנת R(quantum) מול R(SA) על משפחת G(n, p) היא הגרף המרכזי בדוח הסיום.",
+    n: 11,
+    category: "chaotic",
+    paperRef: "Erdős–Rényi G(n, p)",
+    build: buildErdosRenyiExample,
+  },
+  {
+    id: "random-messy-12",
+    name: "פיזור אקראי במישור (n=12)",
+    englishName: "Random scatter MANET",
+    description:
+      "12 אטומים בפיזור אקראי על 200×100, קשתות לפי כלל RGG עם R=40 (seed=7). 'בלגן אמיתי' שדומה ל-MANET-snapshot חי — אבל reproducible בזכות seed קבוע.",
+    n: 12,
+    category: "chaotic",
+    build: buildRandomMessyExample,
+  },
+  {
+    id: "barabasi-albert-12",
+    name: "Barabási–Albert (n=12, m=2)",
+    englishName: "Preferential attachment",
+    description:
+      "רשת scale-free עם hubs: מתחילים מ-K₃, כל קודקוד חדש מתחבר ל-2 קודקודים בסבירות יחסית לדרגה (seed=99). מודלים MANET של hub-and-spoke — חיילים סביב מפקדים, רכבים סביב צמתים. תפלגות דרגות עם זנב כבד.",
+    n: 12,
+    category: "chaotic",
+    paperRef: "Barabási & Albert, Science 286 (1999)",
+    build: buildBarabasiAlbertExample,
+  },
+  {
+    id: "two-triangles",
+    name: "שני משולשים מנותקים",
+    englishName: "Two disjoint K₃",
+    description:
+      "6 קודקודים, שני K₃ ללא קשרים ביניהם. regression test לקצה non-connectivity: Stage 8 חייב לדווח שזוגות בין הרכיבים אינם נגישים (hops=0), ושאר הצינור חייב להמשיך לעבוד.",
+    n: 6,
+    category: "stress",
+    build: buildTwoTrianglesExample,
   },
 ];
 
