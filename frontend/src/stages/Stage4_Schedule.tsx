@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  api,
-  type GapTraceDTO,
-  type PhaseDiagramDTO,
-  type SpectrumTraceDTO,
-} from "../api/rest";
+import { api } from "../api/rest";
 import { ConstraintBadge, ConstraintSummary } from "../components/ConstraintBadge";
 import { HamiltonianTeX } from "../components/HamiltonianTeX";
 import { Panel } from "../components/Panel";
@@ -44,20 +39,27 @@ const DEFAULT_PARAMS: PaperPresetParams = {
 };
 
 export function Stage4_Schedule() {
-  const { embed, schedule, setSchedule } = usePipeline();
+  // The three analyses (gap, spectrum, phase) live in the persisted store so
+  // they survive a tab switch — see `scheduleAnalysis` in store/pipeline.ts.
+  // Local UI-only state (loading flags, slider params) stays here.
+  const {
+    embed,
+    schedule,
+    setSchedule,
+    scheduleAnalysis,
+    setGap,
+    setSpectrum,
+    setPhase,
+  } = usePipeline();
+  const { gap, gapTooMany, spectrum, spectrumTooMany, phase, phaseTooMany } =
+    scheduleAnalysis;
   const [params, setParams] = useState<PaperPresetParams>(DEFAULT_PARAMS);
   const [preset, setPreset] = useState<PresetName>("paper_linear_ramp");
   const [cursorT, setCursorT] = useState<number>(2.0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [gap, setGap] = useState<GapTraceDTO | null>(null);
-  const [gapAtomsTooMany, setGapAtomsTooMany] = useState<{ n: number; max: number } | null>(null);
   const [gapLoading, setGapLoading] = useState(false);
-  const [spectrum, setSpectrum] = useState<SpectrumTraceDTO | null>(null);
-  const [spectrumTooMany, setSpectrumTooMany] = useState<{ n: number; max: number } | null>(null);
   const [spectrumLoading, setSpectrumLoading] = useState(false);
-  const [phase, setPhase] = useState<PhaseDiagramDTO | null>(null);
-  const [phaseTooMany, setPhaseTooMany] = useState<{ n: number; max: number } | null>(null);
   const [phaseLoading, setPhaseLoading] = useState(false);
 
   const run = useCallback(async () => {
@@ -68,11 +70,8 @@ export function Stage4_Schedule() {
         preset,
         preset_params: { ...params },
       });
+      // setSchedule resets scheduleAnalysis internally — see store/pipeline.ts.
       setSchedule(res);
-      setGap(null); // schedule changed → stale gap
-      setGapAtomsTooMany(null);
-      setSpectrum(null);
-      setSpectrumTooMany(null);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -91,18 +90,16 @@ export function Stage4_Schedule() {
         n_samples: 25,
       });
       if (res.trace === null) {
-        setGap(null);
-        setGapAtomsTooMany({ n: res.n_atoms, max: res.max_atoms });
+        setGap(null, { n: res.n_atoms, max: res.max_atoms });
       } else {
-        setGap(res.trace);
-        setGapAtomsTooMany(null);
+        setGap(res.trace, null);
       }
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setGapLoading(false);
     }
-  }, [schedule, embed]);
+  }, [schedule, embed, setGap]);
 
   const runSpectrumAnalysis = useCallback(async () => {
     if (!schedule || !embed) return;
@@ -116,18 +113,16 @@ export function Stage4_Schedule() {
         n_levels: 4,
       });
       if (res.trace === null) {
-        setSpectrum(null);
-        setSpectrumTooMany({ n: res.n_atoms, max: res.max_atoms });
+        setSpectrum(null, { n: res.n_atoms, max: res.max_atoms });
       } else {
-        setSpectrum(res.trace);
-        setSpectrumTooMany(null);
+        setSpectrum(res.trace, null);
       }
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setSpectrumLoading(false);
     }
-  }, [schedule, embed]);
+  }, [schedule, embed, setSpectrum]);
 
   const runPhaseDiagram = useCallback(async () => {
     if (!embed) return;
@@ -144,21 +139,25 @@ export function Stage4_Schedule() {
         n_delta: 25,
       });
       if (res.diagram === null) {
-        setPhase(null);
-        setPhaseTooMany({ n: res.n_atoms, max: res.max_atoms });
+        setPhase(null, { n: res.n_atoms, max: res.max_atoms });
       } else {
-        setPhase(res.diagram);
-        setPhaseTooMany(null);
+        setPhase(res.diagram, null);
       }
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setPhaseLoading(false);
     }
-  }, [embed]);
+  }, [embed, setPhase]);
 
   useEffect(() => {
-    run();
+    // Only auto-build a schedule the very first time the user visits this
+    // stage. Re-entering with a schedule already in the store would otherwise
+    // trigger setSchedule on every mount, which (by design) wipes the cached
+    // gap/spectrum/phase analyses — defeating the persistence we just added.
+    if (!schedule) {
+      run();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -410,13 +409,13 @@ export function Stage4_Schedule() {
                     )}
                   </div>
                 )}
-                {gapAtomsTooMany && (
+                {gapTooMany && (
                   <div style={{ fontSize: 11, color: palette.textMuted }}>
-                    הגרף גדול מ-{gapAtomsTooMany.max} אטומים ({gapAtomsTooMany.n}) — diagonalisation
+                    הגרף גדול מ-{gapTooMany.max} אטומים ({gapTooMany.n}) — diagonalisation
                     מלאה איטית מדי לחישוב מיידי.
                   </div>
                 )}
-                {!gap && !gapAtomsTooMany && (
+                {!gap && !gapTooMany && (
                   <div style={{ fontSize: 11, color: palette.textMuted }}>
                     לחץ כדי למצוא את הפער המינימלי E_1−E_0 לאורך הפולס. ה-T המומלץ ≈ 1/δ_min².
                   </div>
