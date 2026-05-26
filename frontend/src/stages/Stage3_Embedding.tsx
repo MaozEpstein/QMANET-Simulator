@@ -5,6 +5,7 @@ import { AtomArray2D } from "../components/AtomArray2D";
 import { ConstraintBadge, ConstraintSummary } from "../components/ConstraintBadge";
 import { Panel } from "../components/Panel";
 import { Slider } from "../components/Slider";
+import { blockadeRadiusUm } from "../lib/aquilaConstants";
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
 
@@ -19,11 +20,49 @@ const DEFAULT_CFG: EmbedConfigDTO = {
   margin_um: 2,
 };
 
+// Auto-tune search space. 7 × 7 = 49 trials, ~1-2 sec at N=16 (see Stage 3
+// review). Lattice spacings concentrate near typical values (4-6 µm) with a
+// few wider options for graphs that benefit from larger atom separations.
+const AUTO_TUNE_SPACINGS = [4, 4.5, 5, 5.5, 6, 7, 8];
+const AUTO_TUNE_SEEDS = [0, 1, 2, 3, 4, 5, 6];
+
+interface AutoTuneOutcome {
+  spacing: number;
+  seed: number;
+  fidelity: number;
+  violations: number;
+  missing: number;
+  spurious: number;
+}
+
+/**
+ * Decide which of two embedding results is "better" for the auto-tune ranker.
+ * Lexicographic ordering:
+ *   1. fewer hard violations (any violation kills usability on hardware)
+ *   2. higher embedding_fidelity (Jaccard of induced vs target edge sets)
+ *   3. fewer total bad edges (missing + spurious) — secondary tiebreak
+ */
+function isBetter(a: EmbedResponse, b: EmbedResponse): boolean {
+  if (a.violations.length !== b.violations.length) {
+    return a.violations.length < b.violations.length;
+  }
+  const df = a.embedding_fidelity - b.embedding_fidelity;
+  if (Math.abs(df) > 1e-6) return df > 0;
+  const aBad = a.missing_edges.length + a.spurious_edges.length;
+  const bBad = b.missing_edges.length + b.spurious_edges.length;
+  return aBad < bBad;
+}
+
 export function Stage3_Embedding() {
   const { mis, embed, setEmbed } = usePipeline();
   const [cfg, setCfg] = useState<EmbedConfigDTO>(DEFAULT_CFG);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Auto-tune state — progress counter + the winning trial so we can flash a
+  // "found X" toast after the sweep completes.
+  const [autoTuning, setAutoTuning] = useState(false);
+  const [autoTuneProgress, setAutoTuneProgress] = useState({ done: 0, total: 0 });
+  const [autoTuneWin, setAutoTuneWin] = useState<AutoTuneOutcome | null>(null);
 
   const targetGraph = mis?.complement ?? null;
 
@@ -41,6 +80,58 @@ export function Stage3_Embedding() {
     }
   }, [targetGraph, cfg, setEmbed]);
 
+  const runAutoTune = useCallback(async () => {
+    if (!targetGraph || autoTuning) return;
+    const total = AUTO_TUNE_SPACINGS.length * AUTO_TUNE_SEEDS.length;
+    setAutoTuning(true);
+    setAutoTuneProgress({ done: 0, total });
+    setAutoTuneWin(null);
+    setErr(null);
+    // Track the best (config, response) pair while sweeping. We keep both so
+    // we can apply the winner to the UI sliders (cfg) and to the visualization
+    // (setEmbed) in a single commit after the sweep.
+    let bestRes: EmbedResponse | null = null;
+    let bestCfg: EmbedConfigDTO | null = null;
+    let done = 0;
+    try {
+      for (const spacing of AUTO_TUNE_SPACINGS) {
+        for (const seed of AUTO_TUNE_SEEDS) {
+          const trialCfg: EmbedConfigDTO = {
+            ...cfg,
+            lattice_spacing_um: spacing,
+            layout_seed: seed,
+          };
+          const res = await api.embed({
+            target_graph: targetGraph,
+            config: trialCfg,
+          });
+          if (!bestRes || isBetter(res, bestRes)) {
+            bestRes = res;
+            bestCfg = trialCfg;
+          }
+          done++;
+          setAutoTuneProgress({ done, total });
+        }
+      }
+      if (bestRes && bestCfg) {
+        setCfg(bestCfg);
+        setEmbed(bestRes);
+        setAutoTuneWin({
+          spacing: bestCfg.lattice_spacing_um,
+          seed: bestCfg.layout_seed,
+          fidelity: bestRes.embedding_fidelity,
+          violations: bestRes.violations.length,
+          missing: bestRes.missing_edges.length,
+          spurious: bestRes.spurious_edges.length,
+        });
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setAutoTuning(false);
+    }
+  }, [targetGraph, cfg, setEmbed, autoTuning]);
+
   useEffect(() => {
     if (targetGraph && (!embed || embed.n_atoms !== targetGraph.n_nodes)) {
       run();
@@ -57,6 +148,21 @@ export function Stage3_Embedding() {
     }
     return set;
   }, [embed]);
+
+  // Live R_b: recomputed from the current sliders on every render, so the
+  // blockade rings in the visualization update *as the user drags Ω*, before
+  // they click "↻ הרץ embedding" to actually rebuild the atom array. The
+  // formula matches backend/aquila/constants.py:blockade_radius_um.
+  const liveBlockadeRadiusUm = useMemo(
+    () => blockadeRadiusUm(cfg.rabi_rad_us, cfg.detuning_rad_us),
+    [cfg.rabi_rad_us, cfg.detuning_rad_us],
+  );
+  // True when the slider has been moved since the last "Run" — used to
+  // visually distinguish "preview, not yet applied" from "matches actual run".
+  const liveDiffersFromRun = useMemo(() => {
+    if (!embed) return false;
+    return Math.abs(embed.blockade_radius_um - liveBlockadeRadiusUm) > 1e-3;
+  }, [embed, liveBlockadeRadiusUm]);
 
   if (!targetGraph) {
     return (
@@ -134,39 +240,83 @@ export function Stage3_Embedding() {
               value={cfg.rescale_to_region}
               onChange={(v) => setCfg({ ...cfg, rescale_to_region: v })}
             />
-            <button
-              onClick={run}
-              disabled={loading}
-              style={{
-                marginTop: 6,
-                padding: "10px 16px",
-                background: palette.queraPurple,
-                color: "#fff",
-                border: "none",
-                borderRadius: 8,
-                fontWeight: 600,
-                cursor: loading ? "wait" : "pointer",
-              }}
-            >
-              {loading ? "מחשב embedding…" : "↻ הרץ embedding"}
-            </button>
+            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+              <button
+                onClick={run}
+                disabled={loading || autoTuning}
+                style={{
+                  flex: 1,
+                  padding: "10px 16px",
+                  background: palette.queraPurple,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  fontWeight: 600,
+                  cursor: loading || autoTuning ? "wait" : "pointer",
+                  opacity: autoTuning ? 0.55 : 1,
+                }}
+              >
+                {loading ? "מחשב embedding…" : "↻ הרץ embedding"}
+              </button>
+              <button
+                onClick={runAutoTune}
+                disabled={loading || autoTuning}
+                title="סורק 49 שילובים של lattice_spacing × layout_seed ובוחר את זה עם הכי הרבה fidelity"
+                style={{
+                  padding: "10px 14px",
+                  background: autoTuning ? palette.bgInset : "transparent",
+                  color: palette.queraPurpleGlow,
+                  border: `1px solid ${palette.queraPurpleGlow}`,
+                  borderRadius: 8,
+                  fontWeight: 600,
+                  fontSize: 12,
+                  cursor: loading || autoTuning ? "wait" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                🎯 Auto-tune
+              </button>
+            </div>
+            {autoTuning && (
+              <AutoTuneProgress
+                done={autoTuneProgress.done}
+                total={autoTuneProgress.total}
+              />
+            )}
+            {!autoTuning && autoTuneWin && (
+              <AutoTuneResult outcome={autoTuneWin} />
+            )}
             {err && (
               <div style={{ color: palette.err, fontSize: 12 }} dir="ltr">
                 {err}
               </div>
             )}
-            {embed && <StatsGrid embed={embed} />}
+            {embed && (
+              <StatsGrid
+                embed={embed}
+                liveBlockadeRadiusUm={liveBlockadeRadiusUm}
+                liveDiffers={liveDiffersFromRun}
+              />
+            )}
           </div>
 
           <div>
             {embed && (
               <AtomArray2D
                 atoms={embed.positions}
-                blockadeRadiusUm={embed.blockade_radius_um}
+                // Live R_b drives the blockade rings — they update on every
+                // Ω / Δ slider tick so the user can see the *effect* of a
+                // change before paying the cost of re-running the embed.
+                blockadeRadiusUm={liveBlockadeRadiusUm}
                 edges={embed.induced_edges}
                 latticeSpacingUm={cfg.lattice_spacing_um}
                 highlight={violationLoci}
-                caption={`${embed.n_atoms} atoms · R_b = ${embed.blockade_radius_um.toFixed(2)} µm`}
+                showAtomLabels
+                caption={
+                  liveDiffersFromRun
+                    ? `${embed.n_atoms} atoms · R_b (preview) = ${liveBlockadeRadiusUm.toFixed(2)} µm — run to apply`
+                    : `${embed.n_atoms} atoms · R_b = ${liveBlockadeRadiusUm.toFixed(2)} µm`
+                }
                 pixelWidth={620}
                 pixelHeight={620}
               />
@@ -202,7 +352,15 @@ export function Stage3_Embedding() {
   );
 }
 
-function StatsGrid({ embed }: { embed: EmbedResponse }) {
+function StatsGrid({
+  embed,
+  liveBlockadeRadiusUm,
+  liveDiffers,
+}: {
+  embed: EmbedResponse;
+  liveBlockadeRadiusUm: number;
+  liveDiffers: boolean;
+}) {
   return (
     <div
       style={{
@@ -218,7 +376,19 @@ function StatsGrid({ embed }: { embed: EmbedResponse }) {
       }}
     >
       <Stat label="אטומים" value={String(embed.n_atoms)} />
-      <Stat label="R_b" value={`${embed.blockade_radius_um.toFixed(2)} µm`} />
+      <Stat
+        // R_b cell switches between "R_b live" (preview of slider) and the
+        // value used by the last embed run. The double form is so the user
+        // always knows whether the rings on the canvas match the rest of
+        // the analysis or are mid-edit.
+        label={liveDiffers ? "R_b (preview · live)" : "R_b"}
+        value={
+          liveDiffers
+            ? `${liveBlockadeRadiusUm.toFixed(2)} → run ${embed.blockade_radius_um.toFixed(2)} µm`
+            : `${liveBlockadeRadiusUm.toFixed(2)} µm`
+        }
+        color={liveDiffers ? palette.warn : palette.queraPurpleGlow}
+      />
       <Stat label="קשתות מושרות" value={String(embed.induced_edges.length)} />
       <Stat
         label="Fidelity"
@@ -287,5 +457,113 @@ function ToggleRow({
         style={{ accentColor: palette.queraPurpleGlow }}
       />
     </label>
+  );
+}
+
+function AutoTuneProgress({ done, total }: { done: number; total: number }) {
+  const pct = total > 0 ? (done / total) * 100 : 0;
+  return (
+    <div
+      style={{
+        padding: 10,
+        background: palette.bgInset,
+        borderRadius: 8,
+        fontSize: 11.5,
+        color: palette.textSecondary,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginBottom: 6,
+        }}
+      >
+        <span>סורק שילובים…</span>
+        <span style={{ fontFamily: "var(--font-mono)", color: palette.queraPurpleGlow }} dir="ltr">
+          {done} / {total}
+        </span>
+      </div>
+      <div
+        style={{
+          height: 5,
+          background: palette.bgPanel,
+          borderRadius: 999,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${pct}%`,
+            height: "100%",
+            background: palette.queraPurpleGlow,
+            transition: "width 80ms linear",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function AutoTuneResult({ outcome }: { outcome: { spacing: number; seed: number; fidelity: number; violations: number; missing: number; spurious: number } }) {
+  const fidPct = (outcome.fidelity * 100).toFixed(1);
+  const fidColor =
+    outcome.fidelity > 0.9
+      ? palette.ok
+      : outcome.fidelity > 0.6
+        ? palette.warn
+        : palette.err;
+  return (
+    <div
+      style={{
+        padding: 10,
+        background: palette.bgInset,
+        borderRadius: 8,
+        border: `1px solid ${palette.queraPurpleGlow}55`,
+        fontSize: 11.5,
+        color: palette.textSecondary,
+      }}
+    >
+      <div style={{ color: palette.queraPurpleGlow, fontWeight: 600, marginBottom: 6 }}>
+        🎯 Auto-tune — נמצא שילוב מיטבי
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }} dir="ltr">
+        <div>
+          <span style={{ color: palette.textMuted }}>spacing</span>{" "}
+          <span style={{ fontFamily: "var(--font-mono)", color: palette.textPrimary }}>
+            {outcome.spacing} µm
+          </span>
+        </div>
+        <div>
+          <span style={{ color: palette.textMuted }}>seed</span>{" "}
+          <span style={{ fontFamily: "var(--font-mono)", color: palette.textPrimary }}>
+            {outcome.seed}
+          </span>
+        </div>
+        <div>
+          <span style={{ color: palette.textMuted }}>fidelity</span>{" "}
+          <span style={{ fontFamily: "var(--font-mono)", color: fidColor }}>
+            {fidPct}%
+          </span>
+        </div>
+        <div>
+          <span style={{ color: palette.textMuted }}>violations</span>{" "}
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: outcome.violations === 0 ? palette.ok : palette.err,
+            }}
+          >
+            {outcome.violations}
+          </span>
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <span style={{ color: palette.textMuted }}>edges</span>{" "}
+          <span style={{ fontFamily: "var(--font-mono)" }}>
+            {outcome.missing} missing · {outcome.spurious} spurious
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }

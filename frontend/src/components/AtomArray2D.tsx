@@ -10,7 +10,7 @@
  * physics plot — NOT screen coordinates). The component flips y internally.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { palette } from "../theme/palette";
 import type { NodePos } from "../api/rest";
 
@@ -51,6 +51,11 @@ interface Props {
   showBlockade?: boolean;
   /** When true, draw the lattice grid. */
   showGrid?: boolean;
+  /** When true, draw atom-id labels next to each atom (not just inside).
+   *  Off by default for the existing live-evolution view (would be too noisy
+   *  on top of the population-colour animation) but Stage 3 needs them so
+   *  the user can map "violation on atom 7" back to a specific dot. */
+  showAtomLabels?: boolean;
   caption?: string;
   /**
    * Optional Rydberg populations per atom (same length as `atoms`).
@@ -72,9 +77,13 @@ export function AtomArray2D({
   highlight,
   showBlockade = true,
   showGrid = true,
+  showAtomLabels = false,
   caption,
   populations,
 }: Props) {
+  // Hover state for the Aquila user-region rectangle — used to surface a
+  // tooltip explaining what the dashed frame is the first time the user sees it.
+  const [regionHover, setRegionHover] = useState(false);
   // Preserve aspect ratio in µm-space → pixel-space.
   const scale = useMemo(
     () => Math.min(pixelWidth / regionWidthUm, pixelHeight / regionHeightUm),
@@ -131,18 +140,47 @@ export function AtomArray2D({
           </radialGradient>
         </defs>
 
-        {/* User region rectangle */}
+        {/* User region rectangle. A wide transparent stroke acts as a hit
+            target so the user can hover the dashed boundary without having
+            to pixel-hunt the 1.5px line. */}
         <rect
           x={toX(0)}
           y={toY(regionHeightUm)}
           width={innerW}
           height={innerH}
           fill="none"
-          stroke={palette.queraPurple}
-          strokeOpacity={0.5}
-          strokeWidth={1.5}
-          strokeDasharray="4 4"
+          stroke="transparent"
+          strokeWidth={14}
+          onMouseEnter={() => setRegionHover(true)}
+          onMouseLeave={() => setRegionHover(false)}
+          style={{ cursor: "help" }}
         />
+        <rect
+          x={toX(0)}
+          y={toY(regionHeightUm)}
+          width={innerW}
+          height={innerH}
+          fill="none"
+          stroke={regionHover ? palette.queraPurpleGlow : palette.queraPurple}
+          strokeOpacity={regionHover ? 0.95 : 0.55}
+          strokeWidth={regionHover ? 2.2 : 1.6}
+          strokeDasharray="4 4"
+          style={{ transition: "stroke 120ms ease, stroke-opacity 120ms ease" }}
+          pointerEvents="none"
+        />
+        {/* Small region label, always visible in the upper-right of the frame. */}
+        <text
+          x={toX(regionWidthUm) - 4}
+          y={toY(regionHeightUm) - 6}
+          fontSize={9.5}
+          fill={regionHover ? palette.queraPurpleGlow : palette.queraPurpleSoft}
+          fontFamily="JetBrains Mono, monospace"
+          textAnchor="end"
+          pointerEvents="none"
+          style={{ transition: "fill 120ms ease" }}
+        >
+          Aquila {regionWidthUm}×{regionHeightUm} µm
+        </text>
 
         {/* Grid */}
         {gridLines.map((g, i) => (
@@ -218,6 +256,13 @@ export function AtomArray2D({
               ? mixHex(groundColor, rydColor, Math.max(0, Math.min(1, p)))
               : "url(#atom-gradient)";
           const radius = isHi ? 8 : 6 + (populations !== undefined ? 2 * p : 0);
+          // External label offset: 1.5x the atom radius, off to the upper-right
+          // so it doesn't clash with the blockade ring or the (cramped) text
+          // that previously sat *inside* the circle. Stage 3 needs to be able
+          // to read "atom 7 violated min_spacing" → find atom 7 → so the label
+          // has to be legible at a glance.
+          const labelDx = radius + 4;
+          const labelDy = -(radius + 4);
           return (
             <g key={`atom-${a.id}`} transform={`translate(${toX(a.x)}, ${toY(a.y)})`}>
               <circle
@@ -228,15 +273,47 @@ export function AtomArray2D({
                 strokeWidth={isHi ? 2 : 1}
                 filter="url(#atom-glow)"
               />
-              <text
-                fontSize={9}
-                fill="#fff"
-                textAnchor="middle"
-                dy={3}
-                style={{ fontFamily: "JetBrains Mono, monospace", pointerEvents: "none" }}
-              >
-                {a.id}
-              </text>
+              {showAtomLabels ? (
+                <>
+                  {/* Subtle backdrop so the label stays readable over the dense
+                      grid + blockade rings without obscuring the atom dot. */}
+                  <text
+                    x={labelDx}
+                    y={labelDy}
+                    fontSize={11}
+                    fontWeight={700}
+                    fill={palette.bgInset}
+                    stroke={palette.bgInset}
+                    strokeWidth={3}
+                    paintOrder="stroke"
+                    textAnchor="start"
+                    style={{ fontFamily: "JetBrains Mono, monospace", pointerEvents: "none" }}
+                  >
+                    {a.id}
+                  </text>
+                  <text
+                    x={labelDx}
+                    y={labelDy}
+                    fontSize={11}
+                    fontWeight={700}
+                    fill={isHi ? palette.err : palette.queraPurpleGlow}
+                    textAnchor="start"
+                    style={{ fontFamily: "JetBrains Mono, monospace", pointerEvents: "none" }}
+                  >
+                    {a.id}
+                  </text>
+                </>
+              ) : (
+                <text
+                  fontSize={9}
+                  fill="#fff"
+                  textAnchor="middle"
+                  dy={3}
+                  style={{ fontFamily: "JetBrains Mono, monospace", pointerEvents: "none" }}
+                >
+                  {a.id}
+                </text>
+              )}
             </g>
           );
         })}
@@ -245,6 +322,52 @@ export function AtomArray2D({
           <text x={12} y={18} fontSize={11} fill={palette.textSecondary} fontFamily="JetBrains Mono">
             {caption}
           </text>
+        )}
+
+        {/* Hover tooltip — explains what the dashed frame represents. Positioned
+            just inside the top-left of the region so it never clips off-screen
+            for any pixel size we render at. */}
+        {regionHover && (
+          <g style={{ pointerEvents: "none" }}>
+            <rect
+              x={toX(0) + 8}
+              y={toY(regionHeightUm) + 8}
+              width={258}
+              height={62}
+              rx={6}
+              fill={palette.bgPanel}
+              stroke={palette.queraPurpleGlow}
+              strokeOpacity={0.7}
+            />
+            <text
+              x={toX(0) + 18}
+              y={toY(regionHeightUm) + 26}
+              fontSize={11.5}
+              fontWeight={700}
+              fill={palette.queraPurpleGlow}
+              fontFamily="JetBrains Mono, monospace"
+            >
+              Aquila user region
+            </text>
+            <text
+              x={toX(0) + 18}
+              y={toY(regionHeightUm) + 43}
+              fontSize={10.5}
+              fill={palette.textSecondary}
+              fontFamily="JetBrains Mono, monospace"
+            >
+              {regionWidthUm}×{regionHeightUm} µm — מסגרת השדה הלייזרי
+            </text>
+            <text
+              x={toX(0) + 18}
+              y={toY(regionHeightUm) + 58}
+              fontSize={10}
+              fill={palette.textMuted}
+              fontFamily="JetBrains Mono, monospace"
+            >
+              כל האטומים חייבים להיות בתוך המסגרת
+            </text>
+          </g>
         )}
       </svg>
     </div>
