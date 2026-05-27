@@ -96,6 +96,23 @@ export function Stage6_Measurement() {
     [currentShotBits],
   );
 
+  // Hamming-weight distribution over the noisy shots. Length = nAtoms + 1
+  // (weight can be 0..N). The MIS-validity flag per weight is computed by
+  // checking whether ANY shot at that weight is a valid independent set —
+  // a coarse heuristic that's still useful for the green/red bar coloring.
+  const weightHistogram = useMemo(() => {
+    if (!noisy || !embed) return null;
+    const N = embed.n_atoms;
+    const counts = new Array(N + 1).fill(0) as number[];
+    const validAtWeight = new Array(N + 1).fill(0) as number[];
+    for (const bs of noisy.bitstrings) {
+      const w = bitstringSize(bs);
+      counts[w] += 1;
+      if (bitstringIsIndependent(bs, inducedEdges)) validAtWeight[w] += 1;
+    }
+    return { counts, validAtWeight, total: noisy.bitstrings.length, N };
+  }, [noisy, embed, inducedEdges]);
+
   // Per-shot classification, accumulated over the noisy shots (these are the
   // ones that will flow to Stage 7).
   const quality = useMemo(() => {
@@ -320,6 +337,57 @@ export function Stage6_Measurement() {
         </div>
       </Panel>
 
+      {weightHistogram && (
+        <Panel
+          title="התפלגות Hamming weight · גודל קבוצת הפתרון"
+          subtitle="כמה shots החזירו k אטומים ב-|r⟩. עמודה גבוהה ב-k=|MIS*| = המחשב הקוונטי מצא פתרון בגודל הנכון."
+        >
+          <HammingWeightPlot
+            counts={weightHistogram.counts}
+            validAtWeight={weightHistogram.validAtWeight}
+            total={weightHistogram.total}
+            N={weightHistogram.N}
+            targetMisSize={targetMisSize}
+          />
+        </Panel>
+      )}
+
+      {noisy && quality && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "10px 14px",
+            background: "rgba(61,220,151,0.08)",
+            border: `1px solid ${palette.ok}`,
+            borderRadius: 8,
+            color: palette.ok,
+            fontSize: 12.5,
+          }}
+        >
+          <span>
+            ✓ {noisy.bitstrings.length} shots מוכנים ({quality.validCount}{" "}
+            תקפי MIS) — המשך לשלב 7 לתיקון violations ופוסט-פרוסס.
+          </span>
+          <button
+            onClick={() => usePipeline.getState().setStage("postprocess")}
+            style={{
+              background: palette.ok,
+              color: "#0a1a12",
+              border: "none",
+              borderRadius: 6,
+              padding: "5px 14px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            לשלב 7 →
+          </button>
+        </div>
+      )}
+
       {probs && noisy && clean && (
         <Panel
           title="התפלגות bitstrings · השוואה משולשת"
@@ -333,6 +401,7 @@ export function Stage6_Measurement() {
               totalShots={Object.values(probs).reduce((s, v) => s + v, 0)}
               orderedKeys={orderedKeys}
               valueKind="probability"
+              highlightSize={targetMisSize ?? undefined}
             />
             <CompactHistogramRow
               caption={`(2) Sampled, noiseless · N=${nShots} shots`}
@@ -340,6 +409,7 @@ export function Stage6_Measurement() {
               histogram={clean.histogram}
               totalShots={clean.n_shots}
               orderedKeys={orderedKeys}
+              highlightSize={targetMisSize ?? undefined}
             />
             <CompactHistogramRow
               caption={`(3) Sampled, Aquila SPAM · N=${nShots} shots`}
@@ -348,6 +418,7 @@ export function Stage6_Measurement() {
               totalShots={noisy.n_shots}
               orderedKeys={orderedKeys}
               highlight
+              highlightSize={targetMisSize ?? undefined}
             />
           </div>
         </Panel>
@@ -447,6 +518,7 @@ function CompactHistogramRow({
   orderedKeys,
   highlight,
   valueKind,
+  highlightSize,
 }: {
   caption: string;
   hint?: string;
@@ -455,6 +527,7 @@ function CompactHistogramRow({
   orderedKeys: string[];
   highlight?: boolean;
   valueKind?: "shots" | "probability";
+  highlightSize?: number;
 }) {
   return (
     <div>
@@ -488,6 +561,7 @@ function CompactHistogramRow({
         topK={Math.min(24, orderedKeys.length)}
         orderedKeys={orderedKeys}
         valueKind={valueKind}
+        highlightSize={highlightSize}
       />
     </div>
   );
@@ -628,6 +702,210 @@ function IconBtn({
     >
       {children}
     </button>
+  );
+}
+
+function HammingWeightPlot({
+  counts,
+  validAtWeight,
+  total,
+  N,
+  targetMisSize,
+}: {
+  counts: number[];
+  validAtWeight: number[];
+  total: number;
+  N: number;
+  targetMisSize: number | null;
+}) {
+  const W = 880;
+  const H = 220;
+  const padLeft = 56;
+  const padRight = 20;
+  const padTop = 14;
+  const padBottom = 38;
+  const innerW = W - padLeft - padRight;
+  const innerH = H - padTop - padBottom;
+  const maxCount = Math.max(1, ...counts);
+  const barSlot = innerW / (N + 1);
+  const barW = barSlot * 0.7;
+  const yFor = (c: number) => padTop + (1 - c / maxCount) * innerH;
+
+  return (
+    <div dir="ltr">
+      <svg
+        width={W}
+        height={H}
+        style={{
+          background: palette.bgInset,
+          border: `1px solid ${palette.queraPurpleSoft}`,
+          borderRadius: 10,
+          display: "block",
+        }}
+      >
+        {/* Y axis grid */}
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+          const y = padTop + (1 - f) * innerH;
+          return (
+            <g key={f}>
+              <line
+                x1={padLeft}
+                x2={padLeft + innerW}
+                y1={y}
+                y2={y}
+                stroke={palette.queraPurpleSoft}
+                strokeOpacity={0.3}
+                strokeWidth={0.5}
+              />
+              <text
+                x={padLeft - 8}
+                y={y + 3}
+                fontSize={10}
+                fill={palette.textMuted}
+                textAnchor="end"
+                fontFamily="JetBrains Mono"
+              >
+                {Math.round(maxCount * f)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Target-MIS vertical marker */}
+        {targetMisSize !== null && targetMisSize >= 0 && targetMisSize <= N && (
+          <g>
+            <line
+              x1={padLeft + (targetMisSize + 0.5) * barSlot}
+              x2={padLeft + (targetMisSize + 0.5) * barSlot}
+              y1={padTop}
+              y2={padTop + innerH}
+              stroke={palette.ok}
+              strokeOpacity={0.65}
+              strokeWidth={1.4}
+              strokeDasharray="4 3"
+            />
+            <text
+              x={padLeft + (targetMisSize + 0.5) * barSlot + 5}
+              y={padTop + 12}
+              fontSize={11}
+              fill={palette.ok}
+              fontFamily="JetBrains Mono"
+            >
+              |MIS*| = {targetMisSize}
+            </text>
+          </g>
+        )}
+
+        {/* Bars: stacked (valid in green on top of invalid in purple) */}
+        {counts.map((c, k) => {
+          const valid = validAtWeight[k] ?? 0;
+          const invalid = c - valid;
+          const x = padLeft + k * barSlot + (barSlot - barW) / 2;
+          const yTopValid = yFor(c);
+          const hValid = (valid / maxCount) * innerH;
+          const hInvalid = (invalid / maxCount) * innerH;
+          return (
+            <g key={k}>
+              {/* Invalid (independent-set violators) — purple */}
+              {invalid > 0 && (
+                <rect
+                  x={x}
+                  y={yTopValid + hValid}
+                  width={barW}
+                  height={Math.max(0.5, hInvalid)}
+                  fill={palette.queraPurple}
+                  fillOpacity={0.55}
+                  rx={2}
+                />
+              )}
+              {/* Valid (passes independence check) — green */}
+              {valid > 0 && (
+                <rect
+                  x={x}
+                  y={yTopValid}
+                  width={barW}
+                  height={Math.max(0.5, hValid)}
+                  fill={palette.ok}
+                  fillOpacity={0.85}
+                  rx={2}
+                />
+              )}
+              {/* Count label */}
+              {c >= maxCount * 0.05 && (
+                <text
+                  x={x + barW / 2}
+                  y={yFor(c) - 4}
+                  fontSize={10}
+                  fill={palette.textSecondary}
+                  textAnchor="middle"
+                  fontFamily="JetBrains Mono"
+                >
+                  {c}
+                </text>
+              )}
+              {/* X label */}
+              <text
+                x={x + barW / 2}
+                y={padTop + innerH + 14}
+                fontSize={10}
+                fill={k === targetMisSize ? palette.ok : palette.textMuted}
+                textAnchor="middle"
+                fontFamily="JetBrains Mono"
+                fontWeight={k === targetMisSize ? 700 : 400}
+              >
+                {k}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Axes labels */}
+        <text
+          x={padLeft + innerW / 2}
+          y={H - 6}
+          fontSize={11}
+          fill={palette.textSecondary}
+          fontFamily="JetBrains Mono"
+          textAnchor="middle"
+        >
+          Hamming weight k (= atoms in |r⟩)
+        </text>
+        <text
+          x={14}
+          y={padTop + innerH / 2}
+          fontSize={11}
+          fill={palette.textSecondary}
+          fontFamily="JetBrains Mono"
+          transform={`rotate(-90 14 ${padTop + innerH / 2})`}
+          textAnchor="middle"
+        >
+          shots
+        </text>
+
+        {/* Legend */}
+        <g transform={`translate(${padLeft + innerW - 200}, ${padTop + 4})`}>
+          <rect width={10} height={10} fill={palette.ok} fillOpacity={0.85} />
+          <text x={14} y={9} fontSize={10.5} fill={palette.ok} fontFamily="JetBrains Mono">
+            valid (independent)
+          </text>
+          <rect y={16} width={10} height={10} fill={palette.queraPurple} fillOpacity={0.55} />
+          <text x={14} y={25} fontSize={10.5} fill={palette.queraPurple} fontFamily="JetBrains Mono">
+            violation
+          </text>
+        </g>
+      </svg>
+      <div
+        style={{
+          fontSize: 11,
+          color: palette.textMuted,
+          marginTop: 6,
+          lineHeight: 1.5,
+        }}
+      >
+        ✓ ירוק = shots ש-bitstring שלהם הוא independent set; סגול = הפרת blockade.
+        סך הכל: {total} shots.
+      </div>
+    </div>
   );
 }
 
