@@ -33,6 +33,31 @@ export function BraketPanel({ positions, schedule, defaultShots = 200 }: Props) 
   const [submit, setSubmit] = useState<BraketSubmitResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyPayload = useCallback(async () => {
+    if (!preview) return;
+    const text = JSON.stringify(preview.payload, null, 2);
+    try {
+      // Modern clipboard API; falls back to a temp textarea for older / insecure-context cases.
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* swallow — the JSON is still visible on screen */
+    }
+  }, [preview]);
 
   const buildPayload = useCallback(async () => {
     setLoading(true);
@@ -186,23 +211,87 @@ export function BraketPanel({ positions, schedule, defaultShots = 200 }: Props) 
             </div>
           )}
           {preview && (
-            <pre
-              style={{
-                background: palette.bgInset,
-                color: palette.queraPurpleGlow,
-                padding: 14,
-                borderRadius: 8,
-                fontSize: 11,
-                fontFamily: "JetBrains Mono, monospace",
-                maxHeight: 320,
-                overflow: "auto",
-                margin: 0,
-              }}
-              dir="ltr"
-              data-testid="braket-payload"
-            >
-              {JSON.stringify(preview.payload, null, 2)}
-            </pre>
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={copyPayload}
+                aria-label="העתק את ה-payload"
+                title={copied ? "Copied!" : "Copy payload JSON"}
+                style={{
+                  position: "absolute",
+                  top: 10,
+                  right: 10,
+                  zIndex: 2,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 12px",
+                  borderRadius: 999,
+                  border: `1px solid ${
+                    copied ? palette.ok : palette.queraPurpleSoft
+                  }`,
+                  background: copied
+                    ? "rgba(61,220,151,0.18)"
+                    : "rgba(20,12,40,0.72)",
+                  backdropFilter: "blur(6px)",
+                  color: copied ? palette.ok : palette.queraPurpleGlow,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: 0.3,
+                  cursor: "pointer",
+                  transition:
+                    "background 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease",
+                  boxShadow: copied
+                    ? `0 0 16px ${palette.ok}55`
+                    : `0 2px 10px rgba(0,0,0,0.35)`,
+                }}
+                onMouseEnter={(e) => {
+                  if (!copied) {
+                    e.currentTarget.style.background = "rgba(155,107,255,0.22)";
+                    e.currentTarget.style.borderColor = palette.queraPurpleGlow;
+                    e.currentTarget.style.transform = "translateY(-1px)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!copied) {
+                    e.currentTarget.style.background = "rgba(20,12,40,0.72)";
+                    e.currentTarget.style.borderColor = palette.queraPurpleSoft;
+                    e.currentTarget.style.transform = "translateY(0)";
+                  }
+                }}
+                data-testid="braket-payload-copy"
+              >
+                {copied ? (
+                  <>
+                    <CheckIcon />
+                    <span dir="ltr">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <ClipboardIcon />
+                    <span dir="ltr">Copy</span>
+                  </>
+                )}
+              </button>
+              <pre
+                style={{
+                  background: palette.bgInset,
+                  color: palette.queraPurpleGlow,
+                  padding: 14,
+                  paddingTop: 44,
+                  borderRadius: 8,
+                  fontSize: 11,
+                  fontFamily: "JetBrains Mono, monospace",
+                  maxHeight: 320,
+                  overflow: "auto",
+                  margin: 0,
+                }}
+                dir="ltr"
+                data-testid="braket-payload"
+              >
+                {JSON.stringify(preview.payload, null, 2)}
+              </pre>
+            </div>
           )}
           {submit && (
             <div
@@ -250,6 +339,23 @@ function Stat({
         {value}
       </div>
     </div>
+  );
+}
+
+function ClipboardIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="8" y="4" width="10" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
+      <rect x="5" y="7" width="10" height="14" rx="2" stroke="currentColor" strokeWidth="2" fill="none" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 12l4 4 10-10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 

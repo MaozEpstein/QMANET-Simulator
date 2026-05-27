@@ -54,7 +54,7 @@ export const STAGES = [
   { id: "complement", label: "Complement", he: "גרף משלים" },
   { id: "embedding", label: "Embedding", he: "השמת אטומים" },
   { id: "schedule", label: "Schedule", he: "פולס אדיאבטי" },
-  { id: "evolution", label: "Evolution", he: "אבולוציה" },
+  { id: "evolution", label: "Sim + Hardware", he: "אבולוציה + חומרה" },
   { id: "measurement", label: "Measurement", he: "מדידה" },
   { id: "postprocess", label: "Post-process", he: "תיקון" },
   { id: "routing", label: "Routing", he: "ניתוב" },

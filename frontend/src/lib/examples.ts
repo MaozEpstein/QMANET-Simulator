@@ -882,6 +882,81 @@ export function buildPathP8Example(): MANETResponse {
 }
 
 /**
+ * MANET RGG n=20 — the "simulator-buster" instance.
+ *
+ * 20 device positions scattered (seeded mulberry32) across the 200×100 box,
+ * edges via RGG with R=28 µm. Density and structure read like a realistic
+ * urban MANET — exactly the model the project commits to — but at a size
+ * where the local pipeline pointedly *cannot* run end-to-end:
+ *
+ *   • Stage 4 spectrum/gap: sparse Hamiltonian cap is 16 atoms → refuses.
+ *   • Stage 5 sesolve: 2²⁰ ≈ 1.05M-state Hilbert space → impractical.
+ *   • Stages 1–3 (build, complement, embed) and Stage 8 (routing) still work.
+ *
+ * The pedagogical job here is exactly this gap: build the instance, see the
+ * complement and the embedding, watch Stage 4/5 refuse, and arrive at "this
+ * is why we need Phase 7 (Braket / QuEra hardware)".
+ */
+export function buildManetRGG20Example(): MANETResponse {
+  const rng = mulberry32(20);
+  const positions = Array.from({ length: 20 }, (_, i) => ({
+    id: i,
+    x: 12 + rng() * 176,
+    y: 12 + rng() * 76,
+  }));
+  const R = 28;
+  const edges = edgesByRgg(positions, R);
+  return {
+    graph: { n_nodes: 20, edges, node_positions: positions },
+    config: { n_nodes: 20, box_size: 200, comm_radius: R, seed: 20 },
+  };
+}
+
+/**
+ * Frucht graph — 12 vertices, 3-regular, *trivial* automorphism group.
+ *
+ * The smallest cubic graph with no non-trivial symmetries (Frucht, 1939). Every
+ * other classical preset in the library has at least one geometric or algebraic
+ * axis of symmetry that the adiabatic sweep can exploit (Petersen is vertex-
+ * transitive, Heawood is edge-transitive, even C₇ has cyclic D₇ symmetry). On
+ * Frucht the algorithm gets no symmetry crutch — the "most honest" small
+ * benchmark you can build, and a direct stress test of the embedding heuristic
+ * which also tends to lean on symmetry.
+ *
+ * ω(G)=3 (contains triangles, girth 3), α(G)=5. 18 edges. Layout: 12-gon
+ * around the box centre, so the lack of symmetry shows up in the edge pattern
+ * rather than the vertex placement.
+ */
+export function buildFruchtExample(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const r = 38;
+  const n = 12;
+  const positions = Array.from({ length: n }, (_, i) => {
+    const theta = -Math.PI / 2 + (2 * Math.PI * i) / n;
+    return { id: i, x: cx + r * Math.cos(theta), y: cy + r * Math.sin(theta) };
+  });
+  // Canonical Frucht edge list (Wikipedia / MathWorld), 0-indexed. 18 edges,
+  // every vertex degree 3, girth 3, automorphism group trivial.
+  const edges: [number, number][] = [
+    [0, 1], [0, 2], [0, 3],
+    [1, 2], [1, 4],
+    [2, 5],
+    [3, 6], [3, 7],
+    [4, 8], [4, 10],
+    [5, 9], [5, 11],
+    [6, 7], [6, 10],
+    [7, 11],
+    [8, 9], [8, 11],
+    [9, 10],
+  ];
+  return {
+    graph: { n_nodes: n, edges, node_positions: positions },
+    config: { n_nodes: n, box_size: 200, comm_radius: 25, seed: null },
+  };
+}
+
+/**
  * Two disjoint triangles — 6 atoms, two K3 components on opposite sides of
  * the canvas, no inter-component edges.
  *

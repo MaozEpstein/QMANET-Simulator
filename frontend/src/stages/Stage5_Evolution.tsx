@@ -224,6 +224,50 @@ export function Stage5_Evolution() {
         </Panel>
       )}
 
+      <div
+        role="separator"
+        aria-label="Step 3 — Hardware bridge"
+        style={{
+          margin: "32px 0 14px",
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+        }}
+      >
+        <div
+          style={{
+            flex: "0 0 auto",
+            padding: "6px 14px",
+            borderRadius: 999,
+            background: `linear-gradient(90deg, ${palette.queraPurple}, ${palette.queraPurpleGlow})`,
+            color: "#fff",
+            fontWeight: 700,
+            fontSize: 13,
+            letterSpacing: 0.3,
+            boxShadow: `0 0 18px ${palette.queraPurpleSoft}`,
+          }}
+        >
+          🔁 Step 3 · Run the same Hamiltonian on real hardware
+        </div>
+        <div
+          style={{
+            flex: 1,
+            height: 1,
+            background: `linear-gradient(90deg, ${palette.queraPurpleGlow}, transparent)`,
+          }}
+        />
+        <div
+          style={{
+            flex: "0 0 auto",
+            fontSize: 12,
+            color: palette.textMuted,
+            fontStyle: "italic",
+          }}
+        >
+          סימולציה מקומית למעלה ↑ · חומרה מרוחקת למטה ↓
+        </div>
+      </div>
+
       <BraketPanel
         positions={embed.positions}
         schedule={schedule.schedule}

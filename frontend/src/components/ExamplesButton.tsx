@@ -20,6 +20,7 @@ import {
   buildC7HardExample,
   buildDenseManetExample,
   buildErdosRenyiExample,
+  buildFruchtExample,
   buildGrotzschExample,
   buildHeawoodExample,
   buildK33Example,
@@ -27,6 +28,7 @@ import {
   buildKings3x3Example,
   buildKings4x4Example,
   buildManetRGG12Example,
+  buildManetRGG20Example,
   buildMobiusKantorExample,
   buildPathP8Example,
   buildPetersenExample,
@@ -337,6 +339,27 @@ const EXAMPLES: Example[] = [
     category: "chaotic",
     paperRef: "Barabási & Albert, Science 286 (1999)",
     build: buildBarabasiAlbertExample,
+  },
+  {
+    id: "manet-rgg-20",
+    name: "MANET RGG n=20 — מעבר לגבול הסימולציה",
+    englishName: "MANET RGG, n=20",
+    description:
+      "20 אטומים בפיזור אקראי על 200×100 (seed=20, R=28 µm) — אותו מודל RGG שעליו הפרויקט מבוסס, אבל בגודל שכבר שובר את הסימולציה המקומית. Stages 1–3 (בנייה, complement, embedding) ו-Stage 8 (routing) עובדים. Stage 4 (spectrum/gap, cap=16) ו-Stage 5 (sesolve, 2²⁰ ≈ 1M מצבים) מסרבים. בדיוק התרחיש שמסביר למה צריך Phase 7 (Braket → QuEra).",
+    n: 20,
+    category: "stress",
+    build: buildManetRGG20Example,
+  },
+  {
+    id: "frucht",
+    name: "גרף Frucht (n=12, ללא סימטריות)",
+    englishName: "Frucht graph",
+    description:
+      "הגרף הקובי הקטן ביותר עם חבורת אוטומורפיזמים טריוויאלית (Frucht 1939). 12 קודקודים, 3-regular, 18 קשתות, girth 3. ω(G)=3, α(G)=5. כל שאר הדוגמות בספרייה נשענות על סימטריה כלשהי שה-adiabatic מנצל — Frucht שולל ממנו את הקיצור הזה. ה-benchmark ה'הוגן ביותר' בגודל קטן, וגם stress ל-layout heuristic שגם הוא נוטה להיתפס לסימטריה.",
+    n: 12,
+    category: "stress",
+    paperRef: "Frucht 1939",
+    build: buildFruchtExample,
   },
   {
     id: "two-triangles",

@@ -10,7 +10,7 @@
  *  - Constraint-violating segments drawn in red
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { palette } from "../theme/palette";
 import type { PiecewiseLinearDTO } from "../api/rest";
 
@@ -26,6 +26,8 @@ interface ChannelSpec {
   /** y-range hint (auto-fit if omitted). */
   yMin?: number;
   yMax?: number;
+  /** Channel signature color (Ω=cyan, Δ=purple, φ=green). Falls back to purple-glow. */
+  color?: string;
 }
 
 interface Props {
@@ -59,20 +61,59 @@ export function PulsePlot({
   const xToT = (x: number) =>
     totalDurationUs > 0 ? ((x - padLeft) / innerW) * totalDurationUs : 0;
 
+  // Local hover state — drives the floating tooltip. Separate from cursorT so
+  // the tooltip can disappear when the mouse leaves while the cursor itself
+  // stays at the last clicked position.
+  const [hover, setHover] = useState<{ x: number; y: number; t: number } | null>(
+    null,
+  );
+
   const onMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!onCursorChange) return;
     const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     const t = Math.max(0, Math.min(totalDurationUs, xToT(x)));
-    onCursorChange(t);
+    setHover({ x, y, t });
+    if (onCursorChange) onCursorChange(t);
   };
 
+  // Sample a channel value and its instantaneous slope at time t. Slope is the
+  // gradient of the active piecewise-linear segment; returns 0 outside range.
+  const sampleChannel = (ch: ChannelSpec, t: number) => {
+    const v = valueAt(ch.data, t);
+    let slope = 0;
+    const { times, values } = ch.data;
+    for (let i = 1; i < times.length; i++) {
+      if (t <= times[i]) {
+        const dt = times[i] - times[i - 1];
+        slope = dt > 0 ? (values[i] - values[i - 1]) / dt : 0;
+        break;
+      }
+    }
+    return { value: v, slope };
+  };
+
+  const tooltipChannels = hover
+    ? channels.map((ch) => {
+        const { value, slope } = sampleChannel(ch, hover.t);
+        let headroom: { kind: "upper" | "lower"; pct: number } | null = null;
+        if (ch.upperLimit !== undefined && ch.upperLimit > 0) {
+          headroom = {
+            kind: "upper",
+            pct: 100 * (1 - Math.abs(value) / Math.abs(ch.upperLimit)),
+          };
+        }
+        return { ch, value, slope, headroom };
+      })
+    : [];
+
   return (
-    <div dir="ltr" style={{ display: "inline-block" }}>
+    <div dir="ltr" style={{ display: "inline-block", position: "relative" }}>
       <svg
         width={W}
         height={H}
         onMouseMove={onMouseMove}
+        onMouseLeave={() => setHover(null)}
         role="img"
         aria-label="Pulse schedule plot"
         style={{
@@ -130,6 +171,80 @@ export function PulsePlot({
           />
         )}
       </svg>
+
+      {hover && tooltipChannels.length > 0 && (
+        <div
+          role="tooltip"
+          style={{
+            position: "absolute",
+            left: Math.min(hover.x + 14, W - 220),
+            top: Math.max(8, Math.min(hover.y + 10, H - 110)),
+            padding: "8px 10px",
+            background: "rgba(15,20,38,0.94)",
+            backdropFilter: "blur(6px)",
+            border: `1px solid ${palette.queraPurpleSoft}`,
+            borderRadius: 8,
+            fontSize: 10.5,
+            fontFamily: "JetBrains Mono, monospace",
+            color: palette.textPrimary,
+            pointerEvents: "none",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.45)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            minWidth: 180,
+          }}
+        >
+          <div
+            style={{
+              color: palette.textMuted,
+              fontSize: 10,
+              borderBottom: `1px solid ${palette.queraPurpleSoft}`,
+              paddingBottom: 4,
+            }}
+          >
+            t = {hover.t.toFixed(3)} µs
+          </div>
+          {tooltipChannels.map(({ ch, value, slope, headroom }, i) => {
+            const lineColor = ch.color ?? palette.queraPurpleGlow;
+            const headroomColor =
+              headroom == null
+                ? palette.textMuted
+                : headroom.pct < 0
+                  ? palette.err
+                  : headroom.pct < 15
+                    ? palette.warn
+                    : palette.ok;
+            return (
+              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: lineColor, fontWeight: 600 }}>{ch.label}</span>
+                  <span style={{ color: lineColor }}>
+                    {value.toFixed(2)} {ch.units}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    color: palette.textMuted,
+                    fontSize: 10,
+                  }}
+                >
+                  <span>d/dt = {slope.toFixed(1)} /µs</span>
+                  {headroom != null && (
+                    <span style={{ color: headroomColor }}>
+                      {headroom.pct >= 0
+                        ? `${headroom.pct.toFixed(0)}% headroom`
+                        : `${(-headroom.pct).toFixed(0)}% over`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -151,6 +266,7 @@ function ChannelPanel({
   tToX: (t: number) => number;
 }) {
   const { data, label, units, upperLimit, lowerLimit } = channel;
+  const lineColor = channel.color ?? palette.queraPurpleGlow;
 
   const { yMin, yMax } = useMemo(() => {
     const all = data.values.slice();
@@ -258,7 +374,7 @@ function ChannelPanel({
           y1={s.y1}
           x2={s.x2}
           y2={s.y2}
-          stroke={s.over ? palette.err : palette.queraPurpleGlow}
+          stroke={s.over ? palette.err : lineColor}
           strokeWidth={s.over ? 2 : 1.6}
         />
       ))}
@@ -270,7 +386,7 @@ function ChannelPanel({
           cx={tToX(t)}
           cy={valueToY(data.values[i])}
           r={3}
-          fill={palette.queraPurple}
+          fill={lineColor}
           stroke="#fff"
           strokeWidth={1}
         />

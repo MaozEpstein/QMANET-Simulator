@@ -39,6 +39,13 @@ export const palette = {
     "#ff5470",
     "#9aa6bf",
   ],
+
+  // Shared channel signature — every Stage-4 visualisation uses these so a
+  // glance at any plot tells you which knob you're looking at:
+  //   Ω (drive) → cyan,  Δ (detuning) → purple,  φ (phase) → green.
+  channelOmega: "#3ed3ff",
+  channelDelta: "#b388ff",
+  channelPhi: "#3ddc97",
 } as const;
 
 export type Palette = typeof palette;

@@ -14,10 +14,35 @@ import { useMemo, useState } from "react";
 import type { PhaseDiagramDTO } from "../api/rest";
 import { palette } from "../theme/palette";
 
+/**
+ * One sample of the (Ω(t), Δ(t)) schedule path in phase space, used to overlay
+ * the pulse trajectory on the heatmap so the user can see *which path* the
+ * schedule traces through the (Ω, Δ) parameter space.
+ */
+export interface PhaseTrajectoryPoint {
+  t_us: number;
+  omega: number;
+  delta: number;
+}
+
 interface Props {
   diagram: PhaseDiagramDTO;
   pixelWidth?: number;
   pixelHeight?: number;
+  /** Optional schedule path in (Ω, Δ) space; drawn as a glowing line. */
+  trajectory?: PhaseTrajectoryPoint[];
+  /** If set, marks the trajectory point closest to this t (µs) with a halo. */
+  cursorT?: number;
+  /**
+   * If provided, clicking any cell calls this with the (Ω, Δ) coordinates of
+   * that cell. Enables "click-to-set" behaviour from the parent stage.
+   */
+  onPick?: (omega: number, delta: number, meanN: number) => void;
+  /**
+   * If provided, marks the picked (Ω, Δ) point with a "★" marker so the user
+   * can see which point in phase space drives the live Hamiltonian view.
+   */
+  pickedPoint?: { omega: number; delta: number } | null;
 }
 
 const PAD_LEFT = 60;
@@ -45,6 +70,10 @@ export function PhaseDiagram2D({
   diagram,
   pixelWidth = 720,
   pixelHeight = 460,
+  trajectory,
+  cursorT,
+  onPick,
+  pickedPoint,
 }: Props) {
   const { omegas, deltas, mean_n, n_atoms } = diagram;
   const nO = omegas.length;
@@ -95,6 +124,95 @@ export function PhaseDiagram2D({
   const legendW = 18;
   const legendStops = 24;
 
+  // ---------------------------------------------------------------------------
+  // Contour lines (marching squares).
+  // For each threshold value, walk every grid cell; classify its four corners
+  // as above/below; emit a line segment with linearly-interpolated endpoints.
+  // The four interesting thresholds correspond to phase boundaries in the
+  // Rydberg MIS Hamiltonian: vacuum→Z₂ (~1), Z₂→MIS (~N/3), MIS→full (~3N/4).
+  // ---------------------------------------------------------------------------
+  const contourLines = useMemo(() => {
+    if (n_atoms <= 0) return [] as { d: string; level: number; label: string }[];
+    const levels = [
+      { level: 0.5, label: "no Rydberg ▸" },
+      { level: n_atoms / 3, label: "▸ MIS" },
+      { level: (3 * n_atoms) / 4, label: "▸ fully excited" },
+    ];
+    const corner = (di: number, oi: number) => ({
+      v: mean_n[di][oi],
+      x: oToX(omegas[oi]),
+      y: dToY(deltas[di]),
+    });
+    const interp = (a: { v: number; x: number; y: number }, b: { v: number; x: number; y: number }, t: number) => {
+      if (Math.abs(b.v - a.v) < 1e-9) return { x: a.x, y: a.y };
+      const f = (t - a.v) / (b.v - a.v);
+      return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+    };
+    return levels.map(({ level, label }) => {
+      const segs: string[] = [];
+      for (let di = 0; di < nD - 1; di++) {
+        for (let oi = 0; oi < nO - 1; oi++) {
+          const tl = corner(di, oi);
+          const tr = corner(di, oi + 1);
+          const br = corner(di + 1, oi + 1);
+          const bl = corner(di + 1, oi);
+          const code =
+            ((tl.v > level ? 1 : 0) << 3) |
+            ((tr.v > level ? 1 : 0) << 2) |
+            ((br.v > level ? 1 : 0) << 1) |
+            (bl.v > level ? 1 : 0);
+          // Only emit when the cell straddles the threshold (not all-in / all-out).
+          if (code === 0 || code === 15) continue;
+          // Compute intersection on each of the four edges (top/right/bottom/left)
+          // only when those edges actually cross — straight from the MS table.
+          const top = ((tl.v > level) !== (tr.v > level)) ? interp(tl, tr, level) : null;
+          const right = ((tr.v > level) !== (br.v > level)) ? interp(tr, br, level) : null;
+          const bottom = ((br.v > level) !== (bl.v > level)) ? interp(br, bl, level) : null;
+          const left = ((bl.v > level) !== (tl.v > level)) ? interp(bl, tl, level) : null;
+          const pts = [top, right, bottom, left].filter(Boolean) as { x: number; y: number }[];
+          // Two-edge cell ⇒ one segment; four-edge cell (saddle) ⇒ two segments.
+          if (pts.length === 2) {
+            segs.push(`M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} L${pts[1].x.toFixed(1)},${pts[1].y.toFixed(1)}`);
+          } else if (pts.length === 4) {
+            segs.push(`M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} L${pts[1].x.toFixed(1)},${pts[1].y.toFixed(1)}`);
+            segs.push(`M${pts[2].x.toFixed(1)},${pts[2].y.toFixed(1)} L${pts[3].x.toFixed(1)},${pts[3].y.toFixed(1)}`);
+          }
+        }
+      }
+      return { d: segs.join(" "), level, label };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mean_n, omegas, deltas, n_atoms, nO, nD, pixelWidth, pixelHeight]);
+
+  // ---------------------------------------------------------------------------
+  // Region labels — heuristic placement at the cell whose ⟨n⟩ is closest to a
+  // canonical phase target. Targets: 0 (vacuum), N/2 (Z₂-ish), N (fully excited).
+  // ---------------------------------------------------------------------------
+  const regionLabels = useMemo(() => {
+    if (n_atoms <= 0) return [] as { x: number; y: number; text: string; color: string }[];
+    const targets: { target: number; text: string; color: string }[] = [
+      { target: 0, text: "no Rydberg", color: "#7cc1ff" },
+      { target: n_atoms / 2, text: "Z₂ / MIS", color: palette.queraPurpleGlow },
+      { target: n_atoms, text: "fully excited", color: palette.warn },
+    ];
+    return targets.map(({ target, text, color }) => {
+      let best = { di: 0, oi: 0, dist: Infinity };
+      for (let di = 0; di < nD; di++) {
+        for (let oi = 0; oi < nO; oi++) {
+          const d = Math.abs(mean_n[di][oi] - target);
+          if (d < best.dist) best = { di, oi, dist: d };
+        }
+      }
+      return {
+        x: oToX(omegas[best.oi]),
+        y: dToY(deltas[best.di]),
+        text,
+        color,
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mean_n, omegas, deltas, n_atoms, nO, nD, pixelWidth, pixelHeight]);
+
   return (
     <div dir="ltr" style={{ display: "inline-block", position: "relative" }}>
       <svg
@@ -126,15 +244,256 @@ export function PhaseDiagram2D({
                     width={cellW + 1}
                     height={cellH + 1}
                     fill={colorFor(v)}
+                    style={{ cursor: onPick ? "crosshair" : "default" }}
                     onMouseEnter={() =>
                       setHover({ o, d, v, px: x + cellW / 2, py: y + cellH / 2 })
                     }
+                    onClick={onPick ? () => onPick(o, d, v) : undefined}
                   />
                 );
               })}
             </g>
           );
         })}
+
+        {/* Trajectory overlay — (Ω(t), Δ(t)) path through phase space.
+            Points outside the visible diagram range are clamped to the edges
+            so the line stays on-chart; in-range portions render normally. */}
+        {trajectory && trajectory.length > 1 && (() => {
+          const clampO = (o: number) => Math.max(oMin, Math.min(oMax, o));
+          const clampD = (d: number) => Math.max(dMin, Math.min(dMax, d));
+          const pts = trajectory.map((p) => ({
+            x: oToX(clampO(p.omega)),
+            y: dToY(clampD(p.delta)),
+            inRange:
+              p.omega >= oMin && p.omega <= oMax && p.delta >= dMin && p.delta <= dMax,
+            t: p.t_us,
+          }));
+          const pathD = pts
+            .map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(2)},${p.y.toFixed(2)}`)
+            .join(" ");
+          // Cursor marker: nearest sample by |t - cursorT|.
+          let cursorPt: (typeof pts)[number] | null = null;
+          if (cursorT != null) {
+            let best = Infinity;
+            for (const p of pts) {
+              const d = Math.abs(p.t - cursorT);
+              if (d < best) {
+                best = d;
+                cursorPt = p;
+              }
+            }
+          }
+          const startPt = pts[0];
+          const endPt = pts[pts.length - 1];
+          // Quarter-time markers (T/4, T/2, 3T/4) and a few direction
+          // arrowheads placed along the curve. The arrowheads convey *direction*
+          // — phase diagrams alone don't say which way the schedule sweeps.
+          const tStart = trajectory[0].t_us;
+          const tEnd = trajectory[trajectory.length - 1].t_us;
+          const tSpan = tEnd - tStart || 1;
+          const quarterTargets = [
+            { frac: 0.25, label: "T/4" },
+            { frac: 0.5, label: "T/2" },
+            { frac: 0.75, label: "3T/4" },
+          ];
+          const findIdxForFrac = (f: number) => {
+            const target = tStart + f * tSpan;
+            let bestI = 0;
+            let bestD = Infinity;
+            for (let i = 0; i < trajectory.length; i++) {
+              const d = Math.abs(trajectory[i].t_us - target);
+              if (d < bestD) {
+                bestD = d;
+                bestI = i;
+              }
+            }
+            return bestI;
+          };
+          const arrowFracs = [0.15, 0.4, 0.65, 0.9];
+          return (
+            <g pointerEvents="none">
+              {/* Glow underlay */}
+              <path
+                d={pathD}
+                fill="none"
+                stroke={palette.ok}
+                strokeOpacity={0.35}
+                strokeWidth={6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {/* Sharp top line */}
+              <path
+                d={pathD}
+                fill="none"
+                stroke={palette.ok}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {/* Direction arrowheads — triangles tangent to the curve */}
+              {arrowFracs.map((f, k) => {
+                const idx = findIdxForFrac(f);
+                if (idx < 1 || idx >= pts.length) return null;
+                const p = pts[idx];
+                const pPrev = pts[idx - 1];
+                const dx = p.x - pPrev.x;
+                const dy = p.y - pPrev.y;
+                const len = Math.hypot(dx, dy);
+                if (len < 1) return null;
+                const ux = dx / len;
+                const uy = dy / len;
+                // Triangle: tip at (p.x, p.y), base ~7px back, ~6px wide.
+                const back = 8;
+                const wide = 5;
+                const bx = p.x - ux * back;
+                const by = p.y - uy * back;
+                const lx = bx + uy * wide;
+                const ly = by - ux * wide;
+                const rx = bx - uy * wide;
+                const ry = by + ux * wide;
+                return (
+                  <polygon
+                    key={`arrow-${k}`}
+                    points={`${p.x},${p.y} ${lx},${ly} ${rx},${ry}`}
+                    fill={palette.ok}
+                    stroke="#0a0f1e"
+                    strokeWidth={0.6}
+                  />
+                );
+              })}
+              {/* Quarter-time markers — small dots with t labels */}
+              {quarterTargets.map((q, k) => {
+                const idx = findIdxForFrac(q.frac);
+                const p = pts[idx];
+                if (!p) return null;
+                return (
+                  <g key={`qt-${k}`}>
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={3.5}
+                      fill={palette.bgPanel}
+                      stroke={palette.ok}
+                      strokeWidth={1.5}
+                    />
+                    <text
+                      x={p.x + 6}
+                      y={p.y - 6}
+                      fontSize={9}
+                      fill={palette.ok}
+                      fontFamily="JetBrains Mono, monospace"
+                      style={{ paintOrder: "stroke", stroke: "#0a0f1e", strokeWidth: 2 }}
+                    >
+                      {q.label}
+                    </text>
+                  </g>
+                );
+              })}
+              {/* Start marker (t=0) */}
+              <circle
+                cx={startPt.x}
+                cy={startPt.y}
+                r={5}
+                fill={palette.bgPanel}
+                stroke={palette.ok}
+                strokeWidth={2}
+              />
+              <text
+                x={startPt.x + 8}
+                y={startPt.y - 6}
+                fontSize={10}
+                fill={palette.ok}
+                fontFamily="JetBrains Mono, monospace"
+                style={{ paintOrder: "stroke", stroke: "#0a0f1e", strokeWidth: 2 }}
+              >
+                t=0
+              </text>
+              {/* End marker (t=T) */}
+              <circle
+                cx={endPt.x}
+                cy={endPt.y}
+                r={5}
+                fill={palette.ok}
+                stroke="#fff"
+                strokeWidth={1.5}
+              />
+              <text
+                x={endPt.x + 8}
+                y={endPt.y + 12}
+                fontSize={10}
+                fill={palette.ok}
+                fontFamily="JetBrains Mono, monospace"
+                style={{ paintOrder: "stroke", stroke: "#0a0f1e", strokeWidth: 2 }}
+              >
+                t=T
+              </text>
+              {/* Live cursor marker */}
+              {cursorPt && (
+                <g>
+                  <circle
+                    cx={cursorPt.x}
+                    cy={cursorPt.y}
+                    r={10}
+                    fill={palette.warn}
+                    fillOpacity={0.2}
+                  />
+                  <circle
+                    cx={cursorPt.x}
+                    cy={cursorPt.y}
+                    r={5}
+                    fill={palette.warn}
+                    stroke="#fff"
+                    strokeWidth={1.5}
+                  />
+                </g>
+              )}
+            </g>
+          );
+        })()}
+
+        {/* Contour lines (phase boundaries) */}
+        {contourLines.map((c, i) => (
+          <path
+            key={`contour-${i}`}
+            d={c.d}
+            fill="none"
+            stroke="#fff"
+            strokeOpacity={0.55}
+            strokeWidth={1}
+            strokeDasharray="3 3"
+            pointerEvents="none"
+          />
+        ))}
+
+        {/* Region labels — drawn after contours so they sit on top */}
+        {regionLabels.map((r, i) => (
+          <g key={`region-${i}`} pointerEvents="none">
+            <rect
+              x={r.x - 36}
+              y={r.y - 9}
+              width={72}
+              height={16}
+              rx={3}
+              fill="rgba(10,15,30,0.72)"
+              stroke={r.color}
+              strokeOpacity={0.5}
+            />
+            <text
+              x={r.x}
+              y={r.y + 3}
+              textAnchor="middle"
+              fontSize={10}
+              fontWeight={700}
+              fill={r.color}
+              fontFamily="JetBrains Mono, monospace"
+              style={{ paintOrder: "stroke", stroke: "rgba(10,15,30,0.9)", strokeWidth: 3 }}
+            >
+              {r.text}
+            </text>
+          </g>
+        ))}
 
         {/* Frame */}
         <rect
@@ -145,6 +504,29 @@ export function PhaseDiagram2D({
           fill="none"
           stroke={palette.queraPurpleSoft}
         />
+
+        {/* Picked-point marker (★) from click-to-set */}
+        {pickedPoint && (
+          <g pointerEvents="none">
+            <circle
+              cx={oToX(pickedPoint.omega)}
+              cy={dToY(pickedPoint.delta)}
+              r={11}
+              fill={palette.queraPurpleGlow}
+              fillOpacity={0.25}
+            />
+            <text
+              x={oToX(pickedPoint.omega)}
+              y={dToY(pickedPoint.delta) + 5}
+              textAnchor="middle"
+              fontSize={18}
+              fill={palette.queraPurpleGlow}
+              style={{ paintOrder: "stroke", stroke: "#000", strokeWidth: 2 }}
+            >
+              ★
+            </text>
+          </g>
+        )}
 
         {/* Hover marker */}
         {hover && (
