@@ -21,6 +21,14 @@ interface Props {
   caption?: string;
   /** When given, marks a specific bitstring with a special color (e.g. the SA optimum). */
   markedBitstring?: string;
+  /** When provided, render bars in this exact order (zero-padded for missing
+   *  keys) instead of sorting by descending count. Used by Stage 6 to keep
+   *  three side-by-side histograms on a shared x-axis. */
+  orderedKeys?: string[];
+  /** Unit semantics for the bar values: "shots" (counts) or "probability"
+   *  (already normalised to [0,1]). Default "shots" matches the original
+   *  contract. Affects the Y-axis label and the bottom-left summary text. */
+  valueKind?: "shots" | "probability";
 }
 
 export function BitstringHistogram({
@@ -32,6 +40,8 @@ export function BitstringHistogram({
   highlightSize,
   caption,
   markedBitstring,
+  orderedKeys,
+  valueKind = "shots",
 }: Props) {
   const padLeft = 50;
   const padRight = 14;
@@ -40,13 +50,16 @@ export function BitstringHistogram({
   const innerW = pixelWidth - padLeft - padRight;
   const innerH = pixelHeight - padTop - padBottom;
 
-  const sorted = useMemo(
-    () =>
-      Object.entries(histogram)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, topK),
-    [histogram, topK],
-  );
+  const sorted = useMemo(() => {
+    if (orderedKeys && orderedKeys.length > 0) {
+      return orderedKeys
+        .slice(0, topK)
+        .map((k) => [k, histogram[k] ?? 0] as [string, number]);
+    }
+    return Object.entries(histogram)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, topK);
+  }, [histogram, topK, orderedKeys]);
 
   const maxCount = sorted[0]?.[1] ?? 1;
   const barW = sorted.length > 0 ? innerW / sorted.length : 0;
@@ -71,7 +84,11 @@ export function BitstringHistogram({
         {/* gridlines */}
         {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const y = padTop + (1 - f) * innerH;
-          const v = Math.round(yMax * f);
+          const raw = yMax * f;
+          const v =
+            valueKind === "probability"
+              ? raw.toFixed(2)
+              : String(Math.round(raw));
           return (
             <g key={`g-${f}`}>
               <line
@@ -145,7 +162,7 @@ export function BitstringHistogram({
                   textAnchor="middle"
                   fontFamily="JetBrains Mono"
                 >
-                  {count}
+                  {valueKind === "probability" ? count.toFixed(3) : count}
                 </text>
               )}
             </g>
@@ -160,7 +177,7 @@ export function BitstringHistogram({
           fill={palette.textSecondary}
           fontFamily="JetBrains Mono"
         >
-          shots
+          {valueKind === "probability" ? "p" : "shots"}
         </text>
         <text
           x={padLeft + innerW - 80}
@@ -178,7 +195,9 @@ export function BitstringHistogram({
           fill={palette.textMuted}
           fontFamily="JetBrains Mono"
         >
-          {totalShots} shots total
+          {valueKind === "probability"
+            ? `probabilities · Σp ≈ ${totalShots.toFixed(2)}`
+            : `${totalShots} shots total`}
         </text>
         {caption && (
           <text
