@@ -191,3 +191,45 @@ def test_embed_edges_are_canonical_pairs_of_ints():
         assert u < v
     for u, v in body["spurious_edges"]:
         assert u < v
+
+
+# --------------------------------------------------------------------------- #
+# /api/embed/recompute — pure-geometry refresh for the Stage-3 drag interaction
+# --------------------------------------------------------------------------- #
+
+
+def test_embed_recompute_matches_original_for_same_positions():
+    """Round-trip: take an embed result, feed its positions back through
+    /recompute, and assert the same induced edges / fidelity / violations come
+    out. Ensures the lighter endpoint is a faithful subset of the heavy one."""
+    payload = _triangle_payload()
+    full = client.post("/api/embed/atoms", json=payload).json()
+    recompute_payload = {
+        "positions": full["positions"],
+        "target_graph": payload["target_graph"],
+        "blockade_radius_um": full["blockade_radius_um"],
+    }
+    r = client.post("/api/embed/recompute", json=recompute_payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["induced_edges"] == full["induced_edges"]
+    assert body["missing_edges"] == full["missing_edges"]
+    assert body["spurious_edges"] == full["spurious_edges"]
+    assert abs(body["embedding_fidelity"] - full["embedding_fidelity"]) < 1e-12
+
+
+def test_embed_recompute_responds_to_moved_atom():
+    """Moving one atom outside blockade range should drop induced edges to it."""
+    payload = _triangle_payload()
+    full = client.post("/api/embed/atoms", json=payload).json()
+    moved = [dict(p) for p in full["positions"]]
+    moved[2]["x"] += 30.0  # push atom 2 well outside any blockade
+    recompute_payload = {
+        "positions": moved,
+        "target_graph": payload["target_graph"],
+        "blockade_radius_um": full["blockade_radius_um"],
+    }
+    body = client.post("/api/embed/recompute", json=recompute_payload).json()
+    # Edges incident to atom 2 should disappear from induced
+    incident = [(u, v) for u, v in body["induced_edges"] if 2 in (u, v)]
+    assert incident == []

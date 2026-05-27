@@ -276,6 +276,35 @@ def embed(
     )
 
 
+def recompute_embed_metrics(
+    positions: list[tuple[float, float]],
+    target_graph: Graph,
+    blockade_radius_um: float,
+    *,
+    spec: AquilaSpec = AQUILA,
+) -> AtomArray:
+    """Recompute induced edges, fidelity, and violations for caller-supplied
+    positions — no spring layout, no snap-to-grid. Used by the Stage 3 atom
+    drag interaction (re-runs ~O(N²) pair geometry, ~ms even for N=30)."""
+    induced = _induced_blockade_edges(positions, blockade_radius_um)
+    induced_set = _edge_set(induced)
+    target_set = _edge_set(target_graph.edges)
+    fidelity = _jaccard(induced_set, target_set)
+    missing = sorted(target_set - induced_set)
+    spurious = sorted(induced_set - target_set)
+    violations = validate_positions(positions, spec=spec)
+    return AtomArray(
+        positions=positions,
+        target_graph=target_graph,
+        blockade_radius_um=blockade_radius_um,
+        induced_edges=induced,
+        embedding_fidelity=fidelity,
+        missing_edges=missing,
+        spurious_edges=spurious,
+        violations=violations,
+    )
+
+
 def atom_array_to_dict(arr: AtomArray) -> dict[str, Any]:
     """Serialize an AtomArray for JSON / FastAPI response models."""
     return {

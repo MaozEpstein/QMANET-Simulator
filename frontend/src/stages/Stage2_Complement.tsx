@@ -3,7 +3,8 @@ import { motion } from "framer-motion";
 import { api } from "../api/rest";
 import { GraphView } from "../components/GraphView";
 import { Panel } from "../components/Panel";
-import { usePipeline } from "../store/pipeline";
+import { selectStaleStages, usePipeline } from "../store/pipeline";
+import { StaleBanner } from "../components/StaleBanner";
 import { palette } from "../theme/palette";
 
 // Distinct colors per clique index — picked so cliques with overlapping
@@ -167,6 +168,8 @@ export function Stage2_Complement() {
       mis.chromatic_lower === undefined ||
       mis.chromatic_upper === undefined);
 
+  const stale = usePipeline((s) => selectStaleStages(s).mis);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -174,6 +177,13 @@ export function Stage2_Complement() {
       transition={{ duration: 0.4 }}
       style={{ display: "grid", gap: 16 }}
     >
+      {stale && (
+        <StaleBanner
+          upstreamLabel="הגרף ב-MANET (שלב 1)"
+          actionLabel="חשב MIS מחדש"
+          onAction={computeComplement}
+        />
+      )}
       <Panel
         title="שלב 2 · קליק → MIS על הגרף המשלים"
         subtitle="זהות:  S קליק ב-G  ⇔  S קבוצה בלתי-תלויה ב-Ḡ. לחץ על קודקוד כדי לראות את השכנים שלו בשני הגרפים."

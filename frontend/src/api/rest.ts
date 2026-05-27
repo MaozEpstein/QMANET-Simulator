@@ -108,6 +108,12 @@ export interface EmbedRequest {
   config?: Partial<EmbedConfigDTO>;
 }
 
+export interface EmbedRecomputeRequest {
+  positions: NodePos[];
+  target_graph: GraphDTO;
+  blockade_radius_um: number;
+}
+
 // --------------------------------------------------------------------------- //
 // Phase 3 — Schedule
 // --------------------------------------------------------------------------- //
@@ -399,6 +405,8 @@ export const api = {
   complement: (graph: GraphDTO) =>
     postJSON<{ graph: GraphDTO }, MISResponse>("/api/graph/complement", { graph }),
   embed: (req: EmbedRequest) => postJSON<EmbedRequest, EmbedResponse>("/api/embed/atoms", req),
+  embedRecompute: (req: EmbedRecomputeRequest) =>
+    postJSON<EmbedRecomputeRequest, EmbedResponse>("/api/embed/recompute", req),
   presets: () => getJSON<{ presets: string[] }>("/api/schedule/presets"),
   schedule: (req: ScheduleRequest) =>
     postJSON<ScheduleRequest, ScheduleResponse>("/api/schedule/build", req),

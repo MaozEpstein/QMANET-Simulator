@@ -10,6 +10,7 @@ import type {
   SimulationFrameDTO,
   SpectrumTraceDTO,
 } from "../api/rest";
+import { stableHash } from "../lib/stageHash";
 
 export interface SimulationState {
   frames: SimulationFrameDTO[];
@@ -102,6 +103,19 @@ interface PipelineState {
   setCurrentFrameIndex: (i: number) => void;
   setFinalBitstringProbs: (probs: Record<string, number> | undefined) => void;
   setTrackedBitstrings: (tracked: Record<string, number[]> | undefined) => void;
+
+  /** Hashes of the upstream inputs that produced each derived state. Used by
+   *  the stale-data banner system: a stage is considered "stale" if its stored
+   *  hash differs from the live hash of its current upstream. */
+  sourceHashes: SourceHashes;
+  recordSourceHash: (key: keyof SourceHashes, hash: string) => void;
+}
+
+export interface SourceHashes {
+  mis?: string;
+  embed?: string;
+  schedule?: string;
+  simulation?: string;
 }
 
 const EMPTY_SIM: SimulationState = {
@@ -110,23 +124,105 @@ const EMPTY_SIM: SimulationState = {
   currentFrameIndex: 0,
 };
 
+/** Stages whose stored hash no longer matches their live upstream. Used by
+ *  the StaleBanner. Returns a flag per derived stage — a downstream stage is
+ *  also considered stale if any *upstream* stage is stale (cascade). */
+export function selectStaleStages(state: PipelineState): {
+  mis: boolean;
+  embed: boolean;
+  schedule: boolean;
+  simulation: boolean;
+} {
+  const h = state.sourceHashes;
+  const misUpstreamHash = state.manet ? stableHash(state.manet.graph) : undefined;
+  const embedUpstreamHash = state.mis ? stableHash(state.mis.complement) : undefined;
+  const scheduleUpstreamHash = state.embed
+    ? stableHash({
+        positions: state.embed.positions,
+        blockade_radius_um: state.embed.blockade_radius_um,
+      })
+    : undefined;
+
+  const misStale = !!state.mis && !!h.mis && h.mis !== misUpstreamHash;
+  const embedStale = !!state.embed && !!h.embed && h.embed !== embedUpstreamHash;
+  const scheduleStale =
+    !!state.schedule && !!h.schedule && h.schedule !== scheduleUpstreamHash;
+
+  // Simulation's upstream is (positions + schedule). We compare against the
+  // hash recorded when the run was stored.
+  const simulationUpstreamHash =
+    state.embed && state.schedule
+      ? stableHash({
+          positions: state.embed.positions,
+          schedule: state.schedule.schedule,
+        })
+      : undefined;
+  const simulationStale =
+    state.simulation.frames.length > 0 &&
+    !!h.simulation &&
+    h.simulation !== simulationUpstreamHash;
+
+  // Cascade: if MIS is stale, embed is automatically stale (its upstream
+  // moved out from under it), etc.
+  return {
+    mis: misStale,
+    embed: misStale || embedStale,
+    schedule: misStale || embedStale || scheduleStale,
+    simulation: misStale || embedStale || scheduleStale || simulationStale,
+  };
+}
+
 export const usePipeline = create<PipelineState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       currentStage: "manet",
       setStage: (s) => set({ currentStage: s }),
       manet: null,
       setManet: (m) => set({ manet: m }),
       mis: null,
-      setMIS: (m) => set({ mis: m }),
+      setMIS: (m) => {
+        const upstream = get().manet?.graph;
+        set((state) => ({
+          mis: m,
+          sourceHashes: {
+            ...state.sourceHashes,
+            mis: m ? stableHash(upstream ?? null) : undefined,
+          },
+        }));
+      },
       embed: null,
       // Changing the embed invalidates all schedule-derived analyses (positions
       // feed every diagonalisation).
-      setEmbed: (e) => set({ embed: e, scheduleAnalysis: { ...EMPTY_ANALYSIS } }),
+      setEmbed: (e) => {
+        const upstream = get().mis?.complement;
+        set((state) => ({
+          embed: e,
+          scheduleAnalysis: { ...EMPTY_ANALYSIS },
+          sourceHashes: {
+            ...state.sourceHashes,
+            embed: e ? stableHash(upstream ?? null) : undefined,
+          },
+        }));
+      },
       schedule: null,
       // Same contract for schedule changes — gap/spectrum/phase all depend on
       // Ω(t), Δ(t), φ(t).
-      setSchedule: (s) => set({ schedule: s, scheduleAnalysis: { ...EMPTY_ANALYSIS } }),
+      setSchedule: (s) => {
+        const embed = get().embed;
+        set((state) => ({
+          schedule: s,
+          scheduleAnalysis: { ...EMPTY_ANALYSIS },
+          sourceHashes: {
+            ...state.sourceHashes,
+            schedule: s
+              ? stableHash({
+                  positions: embed?.positions ?? null,
+                  blockade_radius_um: embed?.blockade_radius_um ?? null,
+                })
+              : undefined,
+          },
+        }));
+      },
       scheduleAnalysis: { ...EMPTY_ANALYSIS },
       setGap: (gap, tooMany = null) =>
         set((state) => ({
@@ -185,6 +281,11 @@ export const usePipeline = create<PipelineState>()(
         set((state) => ({
           simulation: { ...state.simulation, trackedBitstrings: tracked },
         })),
+      sourceHashes: {},
+      recordSourceHash: (key, hash) =>
+        set((state) => ({
+          sourceHashes: { ...state.sourceHashes, [key]: hash },
+        })),
     }),
     {
       name: "qsim.pipeline.v1",
@@ -210,6 +311,7 @@ export const usePipeline = create<PipelineState>()(
         mis: state.mis,
         embed: state.embed,
         schedule: state.schedule,
+        sourceHashes: state.sourceHashes,
         // Spectrum / gap / phase are small (< 5 KB combined) and each one
         // costs the user tens of seconds to recompute, so they ride along.
         scheduleAnalysis: state.scheduleAnalysis,

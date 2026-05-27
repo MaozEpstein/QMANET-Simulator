@@ -16,7 +16,8 @@ import { PhaseDiagram2D, type PhaseTrajectoryPoint } from "../components/PhaseDi
 import { PulsePlot, valueAt } from "../components/PulsePlot";
 import { Slider } from "../components/Slider";
 import { SpectrumPlot } from "../components/SpectrumPlot";
-import { usePipeline } from "../store/pipeline";
+import { selectStaleStages, usePipeline } from "../store/pipeline";
+import { StaleBanner } from "../components/StaleBanner";
 import { palette } from "../theme/palette";
 
 type PresetName = "paper_linear_ramp" | "paper_smooth_blackman";
@@ -336,6 +337,8 @@ export function Stage4_Schedule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const stale = usePipeline((s) => selectStaleStages(s).schedule);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -343,6 +346,13 @@ export function Stage4_Schedule() {
       transition={{ duration: 0.4 }}
       style={{ display: "grid", gap: 16 }}
     >
+      {stale && (
+        <StaleBanner
+          upstreamLabel="מיקומי האטומים (שלב 3)"
+          actionLabel="בנה pulse מחדש"
+          onAction={run}
+        />
+      )}
       <Panel
         title="שלב 4 · פולס אדיאבטי (Ω, Δ, φ)"
         subtitle="פרוטוקול אדיאבטי מותאם ל-Ebadi-2022 §6.1 — מתחילים מ-Δ שלילי גדול, סורקים ל-Δ חיובי"

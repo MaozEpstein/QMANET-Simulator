@@ -10,7 +10,9 @@ import { PulsePlot } from "../components/PulsePlot";
 import { Slider } from "../components/Slider";
 import { streamSimulation } from "../api/ws";
 import type { EvolutionHandle } from "../api/ws";
-import { usePipeline } from "../store/pipeline";
+import { selectStaleStages, usePipeline } from "../store/pipeline";
+import { StaleBanner } from "../components/StaleBanner";
+import { stableHash } from "../lib/stageHash";
 import { palette } from "../theme/palette";
 import { computeMisMetrics, type Edge } from "../lib/misMetrics";
 import { getCachedRun, makeRunKey, setCachedRun } from "../lib/simulationCache";
@@ -34,6 +36,8 @@ export function Stage5_Evolution() {
     setFinalBitstringProbs,
     setTrackedBitstrings,
   } = usePipeline();
+  const recordSourceHash = usePipeline((s) => s.recordSourceHash);
+  const staleSim = usePipeline((s) => selectStaleStages(s).simulation);
   const [cacheHit, setCacheHit] = useState(false);
   const [noise, setNoise] = useState<NoiseConfigDTO>(DEFAULT_NOISE);
   const [nFrames, setNFrames] = useState(80);
@@ -79,6 +83,13 @@ export function Stage5_Evolution() {
             setTrackedBitstrings(cached.trackedBitstrings);
           }
           setSimulationStatus("done");
+          recordSourceHash(
+            "simulation",
+            stableHash({
+              positions: embed.positions,
+              schedule: schedule.schedule,
+            }),
+          );
           setCacheHit(true);
           return;
         }
@@ -110,6 +121,13 @@ export function Stage5_Evolution() {
               setTrackedBitstrings(info.tracked_bitstrings);
             }
             setSimulationStatus("done");
+            recordSourceHash(
+              "simulation",
+              stableHash({
+                positions: embed.positions,
+                schedule: schedule.schedule,
+              }),
+            );
             setCachedRun(key, {
               frames: collected,
               finalBitstringProbs: info.final_bitstring_probs,
@@ -166,6 +184,13 @@ export function Stage5_Evolution() {
         setTrackedBitstrings(cached.trackedBitstrings);
       }
       setSimulationStatus("done");
+      recordSourceHash(
+        "simulation",
+        stableHash({
+          positions: embed.positions,
+          schedule: schedule.schedule,
+        }),
+      );
       setCacheHit(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -389,6 +414,13 @@ export function Stage5_Evolution() {
       transition={{ duration: 0.4 }}
       style={{ display: "grid", gap: 16 }}
     >
+      {staleSim && (
+        <StaleBanner
+          upstreamLabel="המיקומים או ה-pulse (שלבים 3-4)"
+          actionLabel="הרץ אבולוציה מחדש"
+          onAction={() => startStream(true)}
+        />
+      )}
       <Panel
         title="שלב 5 · אבולוציה אדיאבטית בזמן אמת"
         subtitle={`Schrödinger evolution תחת H(t) הנוכחי · QuTiP sesolve · ${embed.n_atoms} אטומים`}
@@ -1596,26 +1628,60 @@ function TSweepPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const runSweep = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const step = nPoints > 1 ? (tMax - tMin) / (nPoints - 1) : 0;
-      const durations = Array.from({ length: nPoints }, (_, i) => tMin + i * step);
-      const res = await api.simulateSweepDurations({
-        positions,
-        schedule,
-        durations_us: durations,
-        n_frames: 60,
-        noise: noise.enabled ? noise : null,
-      });
-      setPoints(res.points);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }, [positions, schedule, noise, tMin, tMax, nPoints]);
+  const runSweepWith = useCallback(
+    async (range: { tMin: number; tMax: number; nPoints: number }) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const step =
+          range.nPoints > 1 ? (range.tMax - range.tMin) / (range.nPoints - 1) : 0;
+        const durations = Array.from(
+          { length: range.nPoints },
+          (_, i) => range.tMin + i * step,
+        );
+        const res = await api.simulateSweepDurations({
+          positions,
+          schedule,
+          durations_us: durations,
+          n_frames: 60,
+          noise: noise.enabled ? noise : null,
+        });
+        setPoints(res.points);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [positions, schedule, noise],
+  );
+
+  const runSweep = useCallback(
+    () => runSweepWith({ tMin, tMax, nPoints }),
+    [runSweepWith, tMin, tMax, nPoints],
+  );
+
+  // Auto-tune: pick a sweep range that brackets the current schedule's T so
+  // the canonical S-curve of approximation_ratio(T) lands inside the window,
+  // and choose n_points so total wall-time stays in budget — ~30s unitary,
+  // ~90s with noise. Per-run cost grows as ~0.03·2^N seconds (calibrated
+  // against the split-Hamiltonian sesolve in pipeline/simulate.py). Auto
+  // also kicks off the sweep immediately — one click = canonical curve.
+  const autoTune = useCallback(() => {
+    const N = positions.length;
+    const perRunSec = 0.03 * Math.pow(2, N) * (noise.enabled ? 2.5 : 1);
+    const budget = noise.enabled ? 90 : 30;
+    const recommended = Math.max(
+      3,
+      Math.min(8, Math.round(budget / Math.max(0.05, perRunSec))),
+    );
+    const newTMin = Math.max(0.1, Number((currentT / 6).toFixed(2)));
+    const newTMax = Number((currentT * 3).toFixed(2));
+    setTMin(newTMin);
+    setTMax(newTMax);
+    setNPoints(recommended);
+    void runSweepWith({ tMin: newTMin, tMax: newTMax, nPoints: recommended });
+  }, [positions.length, noise.enabled, currentT, runSweepWith]);
 
   const metrics = useMemo(
     () =>
@@ -1636,7 +1702,7 @@ function TSweepPanel({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr) auto",
+          gridTemplateColumns: "repeat(3, 1fr) auto auto",
           gap: 10,
           alignItems: "end",
           marginBottom: 14,
@@ -1645,6 +1711,24 @@ function TSweepPanel({
         <NumberInput label="T_min (µs)" value={tMin} onChange={setTMin} min={0.1} max={20} step={0.1} />
         <NumberInput label="T_max (µs)" value={tMax} onChange={setTMax} min={0.2} max={40} step={0.1} />
         <NumberInput label="n_points" value={nPoints} onChange={(v) => setNPoints(Math.round(v))} min={2} max={12} step={1} />
+        <button
+          onClick={autoTune}
+          disabled={busy}
+          title={`Auto-tune לפי N=${positions.length}, currentT=${currentT.toFixed(2)}µs, רעש ${noise.enabled ? "דלוק" : "כבוי"}`}
+          style={{
+            padding: "8px 12px",
+            background: "transparent",
+            color: palette.queraPurpleGlow,
+            border: `1px solid ${palette.queraPurpleSoft}`,
+            borderRadius: 6,
+            cursor: busy ? "wait" : "pointer",
+            fontWeight: 600,
+            fontSize: 12,
+            height: 34,
+          }}
+        >
+          📐 Auto
+        </button>
         <button
           onClick={runSweep}
           disabled={busy || tMax <= tMin}

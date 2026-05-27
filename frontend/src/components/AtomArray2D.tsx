@@ -10,7 +10,7 @@
  * physics plot — NOT screen coordinates). The component flips y internally.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { palette } from "../theme/palette";
 import type { NodePos } from "../api/rest";
 
@@ -67,6 +67,12 @@ interface Props {
   onAtomClick?: (atomId: number) => void;
   /** Atom id rendered with an extra outline ring + bold label. */
   selectedAtom?: number | null;
+  /** Enables drag-to-move on each atom. Called with the new µm coords on
+   *  every pointermove (throttled by rAF) and on pointerup. Coordinates are
+   *  clamped to the region and snapped to `dragSnapUm` µm. */
+  onAtomDrag?: (atomId: number, x_um: number, y_um: number) => void;
+  /** Grid snap for drag, in µm. Default 1 — stabilises sub-pixel jitter. */
+  dragSnapUm?: number;
 }
 
 export function AtomArray2D({
@@ -86,7 +92,11 @@ export function AtomArray2D({
   populations,
   onAtomClick,
   selectedAtom = null,
+  onAtomDrag,
+  dragSnapUm = 1,
 }: Props) {
+  const dragRafRef = useRef<number | null>(null);
+  const dragLatestRef = useRef<{ id: number; x: number; y: number } | null>(null);
   // Hover state for the Aquila user-region rectangle — used to surface a
   // tooltip explaining what the dashed frame is the first time the user sees it.
   const [regionHover, setRegionHover] = useState(false);
@@ -270,12 +280,71 @@ export function AtomArray2D({
           const labelDx = radius + 4;
           const labelDy = -(radius + 4);
           const isSel = selectedAtom === a.id;
+          const handleDragMove = (clientX: number, clientY: number, svgEl: SVGSVGElement) => {
+            if (!onAtomDrag) return;
+            const rect = svgEl.getBoundingClientRect();
+            // px relative to SVG → µm. Invert the (toX, toY) transforms.
+            const x_um = (clientX - rect.left - padding) / scale;
+            const y_um = regionHeightUm - (clientY - rect.top - padding) / scale;
+            // Clamp to region + snap.
+            const cx = Math.max(0, Math.min(regionWidthUm, x_um));
+            const cy = Math.max(0, Math.min(regionHeightUm, y_um));
+            const sx = dragSnapUm > 0 ? Math.round(cx / dragSnapUm) * dragSnapUm : cx;
+            const sy = dragSnapUm > 0 ? Math.round(cy / dragSnapUm) * dragSnapUm : cy;
+            dragLatestRef.current = { id: a.id, x: sx, y: sy };
+            if (dragRafRef.current === null) {
+              dragRafRef.current = requestAnimationFrame(() => {
+                dragRafRef.current = null;
+                const v = dragLatestRef.current;
+                if (v) onAtomDrag(v.id, v.x, v.y);
+              });
+            }
+          };
           return (
             <g
               key={`atom-${a.id}`}
               transform={`translate(${toX(a.x)}, ${toY(a.y)})`}
               onClick={onAtomClick ? () => onAtomClick(a.id) : undefined}
-              style={onAtomClick ? { cursor: "pointer" } : undefined}
+              onPointerDown={
+                onAtomDrag
+                  ? (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const target = e.currentTarget;
+                      target.setPointerCapture(e.pointerId);
+                      const svg = target.ownerSVGElement;
+                      if (!svg) return;
+                      const onMove = (ev: PointerEvent) => {
+                        if (ev.pointerId !== e.pointerId) return;
+                        handleDragMove(ev.clientX, ev.clientY, svg);
+                      };
+                      const onUp = (ev: PointerEvent) => {
+                        if (ev.pointerId !== e.pointerId) return;
+                        target.releasePointerCapture(e.pointerId);
+                        target.removeEventListener("pointermove", onMove);
+                        target.removeEventListener("pointerup", onUp);
+                        target.removeEventListener("pointercancel", onUp);
+                        if (dragRafRef.current !== null) {
+                          cancelAnimationFrame(dragRafRef.current);
+                          dragRafRef.current = null;
+                        }
+                        const v = dragLatestRef.current;
+                        if (v) onAtomDrag(v.id, v.x, v.y);
+                        dragLatestRef.current = null;
+                      };
+                      target.addEventListener("pointermove", onMove);
+                      target.addEventListener("pointerup", onUp);
+                      target.addEventListener("pointercancel", onUp);
+                    }
+                  : undefined
+              }
+              style={
+                onAtomDrag
+                  ? { cursor: "grab", touchAction: "none" }
+                  : onAtomClick
+                    ? { cursor: "pointer" }
+                    : undefined
+              }
               data-testid={`atom-${a.id}`}
             >
               {isSel && (

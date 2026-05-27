@@ -79,6 +79,15 @@ class EmbedRequest(BaseModel):
     config: EmbedConfigDTO | None = None
 
 
+class EmbedRecomputeRequest(BaseModel):
+    """Recompute embedding metrics for caller-supplied positions. Used by
+    the manual atom-drag interaction in Stage 3 — pure geometry, no layout."""
+
+    positions: list[NodePos]
+    target_graph: GraphDTO
+    blockade_radius_um: float = Field(..., gt=0)
+
+
 class ViolationDTO(BaseModel):
     code: str
     message: str

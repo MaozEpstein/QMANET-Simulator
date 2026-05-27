@@ -30,6 +30,7 @@ from api.models import (
     BraketSubmitResponse,
     ComplementRequest,
     CostEstimateDTO,
+    EmbedRecomputeRequest,
     EmbedRequest,
     EmbedResponse,
     GapTraceDTO,
@@ -76,7 +77,7 @@ from pipeline import manet as manet_mod
 from pipeline.adiabatic_gap import GAP_MAX_ATOMS, compute_min_gap, compute_spectrum
 from pipeline.phase_diagram import PHASE_DIAGRAM_MAX_ATOMS, compute_phase_diagram
 from pipeline.classical_sa import SAConfig, simulated_annealing
-from pipeline.embedding import EmbedConfig, embed as embed_atoms
+from pipeline.embedding import EmbedConfig, embed as embed_atoms, recompute_embed_metrics
 from pipeline.measurement import measure
 from pipeline.postprocess import postprocess, postprocess_many, summarize_postprocess
 from aquila.braket_adapter import (
@@ -238,6 +239,31 @@ def embed_atoms_endpoint(req: EmbedRequest) -> EmbedResponse:
     arr = embed_atoms(g, cfg)
     return EmbedResponse(
         positions=[NodePos(id=i, x=x, y=y) for i, (x, y) in enumerate(arr.positions)],
+        n_atoms=len(arr.positions),
+        blockade_radius_um=arr.blockade_radius_um,
+        induced_edges=arr.induced_edges,
+        embedding_fidelity=arr.embedding_fidelity,
+        missing_edges=arr.missing_edges,
+        spurious_edges=arr.spurious_edges,
+        violations=[ViolationDTO(**v.to_dict()) for v in arr.violations],
+    )
+
+
+@app.post("/api/embed/recompute", response_model=EmbedResponse)
+def embed_recompute_endpoint(req: EmbedRecomputeRequest) -> EmbedResponse:
+    """Recompute embedding metrics for caller-supplied positions. Used by the
+    Stage 3 atom-drag interaction: pure geometry, no spring layout, ~ms even
+    for N=30. Position order in the response matches the request."""
+    g = _dto_to_graph(req.target_graph)
+    positions = [(p.x, p.y) for p in req.positions]
+    arr = recompute_embed_metrics(positions, g, req.blockade_radius_um)
+    # Preserve the caller's atom ids — recompute_embed_metrics returns positions
+    # in index order, so we re-zip with the request ids for stability.
+    return EmbedResponse(
+        positions=[
+            NodePos(id=req.positions[i].id, x=x, y=y)
+            for i, (x, y) in enumerate(arr.positions)
+        ],
         n_atoms=len(arr.positions),
         blockade_radius_um=arr.blockade_radius_um,
         induced_edges=arr.induced_edges,

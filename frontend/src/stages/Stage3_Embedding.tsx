@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { api, type EmbedConfigDTO, type EmbedResponse } from "../api/rest";
 import { AtomArray2D } from "../components/AtomArray2D";
@@ -6,7 +6,8 @@ import { ConstraintBadge, ConstraintSummary } from "../components/ConstraintBadg
 import { Panel } from "../components/Panel";
 import { Slider } from "../components/Slider";
 import { blockadeRadiusUm } from "../lib/aquilaConstants";
-import { usePipeline } from "../store/pipeline";
+import { selectStaleStages, usePipeline } from "../store/pipeline";
+import { StaleBanner } from "../components/StaleBanner";
 import { palette } from "../theme/palette";
 
 const DEFAULT_CFG: EmbedConfigDTO = {
@@ -65,6 +66,42 @@ export function Stage3_Embedding() {
   const [autoTuneWin, setAutoTuneWin] = useState<AutoTuneOutcome | null>(null);
 
   const targetGraph = mis?.complement ?? null;
+
+  const stale = usePipeline((s) => selectStaleStages(s).embed);
+
+  // Drag-to-move atoms: immediate local update for snappy feedback, debounced
+  // backend recompute for authoritative induced-edges/violations/fidelity.
+  const recomputeTimerRef = useRef<number | null>(null);
+  const handleAtomDrag = useCallback(
+    (id: number, x: number, y: number) => {
+      if (!embed) return;
+      const newPositions = embed.positions.map((p) =>
+        p.id === id ? { ...p, x, y } : p,
+      );
+      // Optimistic local update — keeps the atom + blockade ring under the cursor.
+      setEmbed({ ...embed, positions: newPositions });
+
+      if (recomputeTimerRef.current !== null) {
+        window.clearTimeout(recomputeTimerRef.current);
+      }
+      recomputeTimerRef.current = window.setTimeout(async () => {
+        recomputeTimerRef.current = null;
+        try {
+          const res = await api.embedRecompute({
+            positions: newPositions,
+            target_graph: targetGraph!,
+            blockade_radius_um: embed.blockade_radius_um,
+          });
+          setEmbed(res);
+        } catch (e) {
+          // Drag is best-effort — surface only via console; the local update
+          // remains and the next manual "↻ הרץ embedding" will resync.
+          console.warn("embedRecompute failed:", e);
+        }
+      }, 150);
+    },
+    [embed, targetGraph, setEmbed],
+  );
 
   const run = useCallback(async () => {
     if (!targetGraph) return;
@@ -181,6 +218,13 @@ export function Stage3_Embedding() {
       transition={{ duration: 0.4 }}
       style={{ display: "grid", gap: 16 }}
     >
+      {stale && (
+        <StaleBanner
+          upstreamLabel="גרף ה-MIS (שלב 2)"
+          actionLabel="הרץ embedding מחדש"
+          onAction={run}
+        />
+      )}
       <Panel
         title="שלב 3 · השמת אטומים על מערך Aquila"
         subtitle="ממקמים את קודקודי Ḡ על אטומים פיזיים כך שרדיוס הבליעה (Rydberg blockade) משחזר את הקשתות"
@@ -319,7 +363,21 @@ export function Stage3_Embedding() {
                 }
                 pixelWidth={620}
                 pixelHeight={620}
+                onAtomDrag={handleAtomDrag}
+                dragSnapUm={1}
               />
+            )}
+            {embed && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 11,
+                  color: palette.textMuted,
+                  textAlign: "center",
+                }}
+              >
+                💡 גרור אטום כדי לתקן הפרה ידנית
+              </div>
             )}
           </div>
         </div>

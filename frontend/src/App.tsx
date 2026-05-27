@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type AquilaSpec } from "./api/rest";
 import { StageErrorBoundary } from "./components/StageErrorBoundary";
 import { ExamplesButton } from "./components/ExamplesButton";
+import { RunPipelineButton } from "./components/RunPipelineButton";
 import { StagesInfoButton } from "./components/StagesInfoButton";
 import { Stage1_MANET } from "./stages/Stage1_MANET";
 import { Stage2_Complement } from "./stages/Stage2_Complement";
@@ -172,6 +173,7 @@ function Header() {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <ExamplesButton />
+        <RunPipelineButton />
         <ResetPipelineButton />
         <div style={{ fontSize: 12, color: palette.textSecondary }} dir="ltr">
           v0.1.0 · Bloqade + QuTiP
