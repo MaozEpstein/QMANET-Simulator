@@ -48,10 +48,11 @@ const ROWS: Row[] = [
   },
   {
     stage: "5 — Evolution",
-    purpose: "פותר את משוואת שרדינגר תחת H(t). |ψ(T)⟩ מקודד את ה-MIS כמצב בהסתברות גבוהה.",
-    work: "QuTiP sesolve על H של 2^N × 2^N",
-    growth: "O(2^(2N))",
-    load: "💀 פה זה מת ב-N≈14",
+    purpose:
+      "פותר sesolve תחת H(t) מפוצל לפיסות זמן-בלתי-תלויות. מדווח לכל frame גם gap, fidelity ל-GS ו-⟨H⟩ לאבחון אדיאבטיות. תוצאות נשמרות ב-cache בזיכרון.",
+    work: "sesolve + partial-eigh(k=2) per frame",
+    growth: "O(2^(2N)) · n_frames",
+    load: "💀 זיכרון מת ב-N≈14; N=10 רץ ב-~30-50s",
     danger: true,
   },
   {
@@ -247,8 +248,9 @@ export function StagesInfoButton() {
                 lineHeight: 1.7,
               }}
             >
-              שלב 5 הוא צוואר הבקבוק היחיד — QuTiP בונה מטריצה צפופה של 2^N × 2^N לכל timestep. כל שאר השלבים פולינומיים ב-N
-              ויודעים לרוץ על 100+ צמתים בלי בעיה. Phase 7 (Braket) פותח את התקרה של שלב 5 על-ידי דחיפת ה-job לחומרת Aquila.
+              שלב 5 הוא צוואר הבקבוק היחיד — sesolve פועלת על H מפוצל ל-4 פיסות זמן-בלתי-תלויות (drive_x, drive_y, detuning, VdW) שנבנות
+              פעם אחת ב-2^N × 2^N. ב-runtime QuTiP מבצע רק matvec דליל × מקדמים סקלריים, ולכל output frame נוסף partial-eigh (k=2) ל-gap,
+              fidelity ו-⟨H⟩. השלבים האחרים פולינומיים ב-N ויודעים לרוץ על 100+ צמתים. Phase 7 (Braket) פותח את התקרה ע"י דחיפת ה-job לחומרת Aquila.
             </p>
           </div>
         </div>

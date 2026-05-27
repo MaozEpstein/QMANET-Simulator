@@ -63,6 +63,10 @@ interface Props {
    * 1 → glowing Rydberg purple. Phase 4 plumbs WS frames into this prop.
    */
   populations?: number[];
+  /** Fires when the user clicks an atom dot. Stage 5 uses this for inspect. */
+  onAtomClick?: (atomId: number) => void;
+  /** Atom id rendered with an extra outline ring + bold label. */
+  selectedAtom?: number | null;
 }
 
 export function AtomArray2D({
@@ -80,6 +84,8 @@ export function AtomArray2D({
   showAtomLabels = false,
   caption,
   populations,
+  onAtomClick,
+  selectedAtom = null,
 }: Props) {
   // Hover state for the Aquila user-region rectangle — used to surface a
   // tooltip explaining what the dashed frame is the first time the user sees it.
@@ -263,14 +269,30 @@ export function AtomArray2D({
           // has to be legible at a glance.
           const labelDx = radius + 4;
           const labelDy = -(radius + 4);
+          const isSel = selectedAtom === a.id;
           return (
-            <g key={`atom-${a.id}`} transform={`translate(${toX(a.x)}, ${toY(a.y)})`}>
+            <g
+              key={`atom-${a.id}`}
+              transform={`translate(${toX(a.x)}, ${toY(a.y)})`}
+              onClick={onAtomClick ? () => onAtomClick(a.id) : undefined}
+              style={onAtomClick ? { cursor: "pointer" } : undefined}
+              data-testid={`atom-${a.id}`}
+            >
+              {isSel && (
+                <circle
+                  r={radius + 4}
+                  fill="none"
+                  stroke={palette.queraPurpleGlow}
+                  strokeOpacity={0.95}
+                  strokeWidth={2}
+                />
+              )}
               <circle
                 r={radius}
                 fill={fill}
                 stroke="#fff"
                 strokeOpacity={0.9}
-                strokeWidth={isHi ? 2 : 1}
+                strokeWidth={isHi || isSel ? 2 : 1}
                 filter="url(#atom-glow)"
               />
               {showAtomLabels ? (

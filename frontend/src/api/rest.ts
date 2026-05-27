@@ -212,19 +212,57 @@ export interface SimulationFrameDTO {
   t_us: number;
   rydberg_populations: number[];
   norm: number;
+  /** Instantaneous spectral gap E₁(t) − E₀(t). Optional for back-compat. */
+  gap?: number | null;
+  /** |⟨GS(t)|ψ(t)⟩|² — adiabatic fidelity. */
+  fidelity_gs?: number | null;
+  /** ⟨ψ(t)|H(t)|ψ(t)⟩ — instantaneous energy. */
+  energy_expect?: number | null;
+  /** E₀(t) — instantaneous ground-state energy. */
+  gs_energy?: number | null;
+  /** Tr(ρ²) — only present for mesolve (noisy) runs. */
+  purity?: number | null;
+}
+
+export interface NoiseConfigDTO {
+  enabled: boolean;
+  t1_us?: number | null;
+  t2_us?: number | null;
 }
 
 export interface SimulateRequest {
   positions: NodePos[];
   schedule: ScheduleDTO;
   n_frames: number;
+  noise?: NoiseConfigDTO | null;
+  track_bitstrings?: boolean;
+  top_k?: number;
 }
 
 export interface SimulateResponse {
   frames: SimulationFrameDTO[];
   final_bitstring_probs: Record<string, number>;
+  tracked_bitstrings?: Record<string, number[]>;
   n_atoms: number;
   duration_us: number;
+}
+
+export interface SweepDurationsRequest {
+  positions: NodePos[];
+  schedule: ScheduleDTO;
+  durations_us: number[];
+  n_frames?: number;
+  noise?: NoiseConfigDTO | null;
+}
+
+export interface SweepPoint {
+  duration_us: number;
+  final_bitstring_probs: Record<string, number>;
+}
+
+export interface SweepDurationsResponse {
+  points: SweepPoint[];
+  n_atoms: number;
 }
 
 // --------------------------------------------------------------------------- //
@@ -378,6 +416,11 @@ export const api = {
     ),
   simulate: (req: SimulateRequest) =>
     postJSON<SimulateRequest, SimulateResponse>("/api/simulate/run", req),
+  simulateSweepDurations: (req: SweepDurationsRequest) =>
+    postJSON<SweepDurationsRequest, SweepDurationsResponse>(
+      "/api/simulate/sweep_durations",
+      req,
+    ),
   measure: (req: MeasureRequest) =>
     postJSON<MeasureRequest, MeasureResponse>("/api/measure", req),
   postprocess: (bitstring: string, target_graph: GraphDTO, seed?: number) =>

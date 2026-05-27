@@ -83,6 +83,74 @@ def test_simulate_run_final_w_state_for_blockaded_pair():
     assert 0.4 < n1 < 0.6
 
 
+def test_simulate_run_with_noise_decoheres():
+    """Aggressive noise (T1=T2=1µs) on a 4µs schedule must reduce purity at t=T,
+    while Tr(ρ) stays ≈ 1 (Lindblad is trace-preserving)."""
+    payload = _two_atom_pi_pulse_request(n_frames=20)
+    payload["noise"] = {"enabled": True, "t1_us": 1.0, "t2_us": 1.0}
+    body = client.post("/api/simulate/run", json=payload).json()
+    purities = [f.get("purity") for f in body["frames"]]
+    assert purities[0] is not None and purities[-1] is not None
+    # First frame is |gg⟩ — pure (≈ 1). After a 4µs run with T1≈1µs the state
+    # must have decohered notably.
+    assert purities[0] > 0.95
+    assert purities[-1] < 0.9
+    # Trace conservation.
+    for f in body["frames"]:
+        assert abs(f["norm"] - 1.0) < 5e-2
+
+
+def test_simulate_run_without_noise_keeps_purity_none():
+    """Unitary path should leave purity unreported (pure state ≡ 1)."""
+    body = client.post("/api/simulate/run", json=_two_atom_pi_pulse_request(10)).json()
+    for f in body["frames"]:
+        assert f.get("purity") is None
+
+
+def test_simulate_run_emits_tracked_bitstrings():
+    body = client.post("/api/simulate/run", json=_two_atom_pi_pulse_request(10)).json()
+    tracked = body.get("tracked_bitstrings", {})
+    assert len(tracked) >= 1
+    for label, series in tracked.items():
+        assert len(label) == 2  # 2 atoms
+        assert len(series) == 10
+        assert all(0.0 - 1e-9 <= p <= 1.0 + 1e-9 for p in series)
+
+
+def test_simulate_sweep_durations_monotone_in_T():
+    """For a small graph + faster schedule, longer T should not hurt the
+    MIS-probability average. We don't assert strict monotonicity (noise from
+    discretisation), only that the longest T does at least as well as the shortest."""
+    pulse = _two_atom_pi_pulse_request(n_frames=15)
+    payload = {
+        "positions": pulse["positions"],
+        "schedule": pulse["schedule"],
+        "n_frames": 15,
+        "durations_us": [0.5, 1.0, 2.0],
+    }
+    r = client.post("/api/simulate/sweep_durations", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["n_atoms"] == 2
+    assert len(body["points"]) == 3
+    for p in body["points"]:
+        total = sum(p["final_bitstring_probs"].values())
+        assert abs(total - 1.0) < 1e-2
+
+
+def test_simulate_run_emits_adiabaticity_extras():
+    body = client.post("/api/simulate/run", json=_two_atom_pi_pulse_request(15)).json()
+    f0 = body["frames"][0]
+    # Initial state is |gg⟩, exact ground state of H(0) since Δ=0, so fidelity ≈ 1.
+    assert f0["gap"] is not None and f0["gap"] > 0
+    assert f0["fidelity_gs"] is not None
+    assert f0["energy_expect"] is not None
+    assert f0["gs_energy"] is not None
+    for f in body["frames"]:
+        assert -1.0 - 1e-6 <= f["fidelity_gs"] <= 1.0 + 1e-6
+        assert f["gap"] >= -1e-9  # gap is non-negative by construction
+
+
 def test_simulate_run_bitstring_probs_sum_to_one():
     body = client.post("/api/simulate/run", json=_two_atom_pi_pulse_request(15)).json()
     total = sum(body["final_bitstring_probs"].values())

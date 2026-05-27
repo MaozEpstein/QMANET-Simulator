@@ -19,6 +19,10 @@ export interface SimulationState {
   /** Populated once the simulation finishes — lets Stages 6 & 7 sample
    *  without re-running the (potentially expensive) sesolve. */
   finalBitstringProbs?: Record<string, number>;
+  /** Per-frame probability time-series for the top-K bitstrings (by final
+   *  probability). Only emitted by the backend at "done"; used by the
+   *  bitstring-evolution heatmap. */
+  trackedBitstrings?: Record<string, number[]>;
 }
 
 /**
@@ -97,6 +101,7 @@ interface PipelineState {
   setSimulationStatus: (s: SimulationState["status"], msg?: string) => void;
   setCurrentFrameIndex: (i: number) => void;
   setFinalBitstringProbs: (probs: Record<string, number> | undefined) => void;
+  setTrackedBitstrings: (tracked: Record<string, number[]> | undefined) => void;
 }
 
 const EMPTY_SIM: SimulationState = {
@@ -176,6 +181,10 @@ export const usePipeline = create<PipelineState>()(
         set((state) => ({
           simulation: { ...state.simulation, finalBitstringProbs: probs },
         })),
+      setTrackedBitstrings: (tracked) =>
+        set((state) => ({
+          simulation: { ...state.simulation, trackedBitstrings: tracked },
+        })),
     }),
     {
       name: "qsim.pipeline.v1",
@@ -209,6 +218,7 @@ export const usePipeline = create<PipelineState>()(
           status: "idle" as const,
           currentFrameIndex: 0,
           finalBitstringProbs: state.simulation.finalBitstringProbs,
+          trackedBitstrings: state.simulation.trackedBitstrings,
         },
       }),
     },

@@ -16,6 +16,7 @@ export type EvolutionMessage =
       duration_us: number;
       final_t_us: number;
       final_bitstring_probs?: Record<string, number>;
+      tracked_bitstrings?: Record<string, number[]>;
     }
   | { type: "error"; message: string };
 
@@ -34,6 +35,7 @@ export function streamSimulation(
       duration_us: number;
       final_t_us: number;
       final_bitstring_probs?: Record<string, number>;
+      tracked_bitstrings?: Record<string, number[]>;
     }) => void;
     onError?: (msg: string) => void;
     onOpen?: () => void;

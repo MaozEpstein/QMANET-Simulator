@@ -217,23 +217,63 @@ class PhaseDiagramResponse(BaseModel):
 # --------------------------------------------------------------------------- #
 
 
+class NoiseConfigDTO(BaseModel):
+    """Lindblad noise model for `simulate()`. Setting `enabled=False`
+    short-circuits to the unitary (sesolve) path. T1/T2 in microseconds."""
+
+    enabled: bool = False
+    t1_us: float | None = Field(default=None, ge=0)
+    t2_us: float | None = Field(default=None, ge=0)
+
+
 class SimulateRequest(BaseModel):
     positions: list[NodePos]
     schedule: ScheduleDTO
     n_frames: int = Field(default=120, ge=2, le=600)
+    noise: NoiseConfigDTO | None = None
+    track_bitstrings: bool = True
+    top_k: int = Field(default=8, ge=1, le=32)
 
 
 class SimulationFrameDTO(BaseModel):
     t_us: float
     rydberg_populations: list[float]
     norm: float
+    gap: float | None = None
+    fidelity_gs: float | None = None
+    energy_expect: float | None = None
+    gs_energy: float | None = None
+    purity: float | None = None
 
 
 class SimulateResponse(BaseModel):
     frames: list[SimulationFrameDTO]
     final_bitstring_probs: dict[str, float]
+    tracked_bitstrings: dict[str, list[float]] = Field(default_factory=dict)
     n_atoms: int
     duration_us: float
+
+
+class SweepDurationsRequest(BaseModel):
+    """Run the same schedule shape at multiple durations (linear time rescale).
+    Returns the final bitstring probability for each. Used by Stage 5's
+    "approximation_ratio(T)" sweep — the canonical adiabaticity demonstration."""
+
+    positions: list[NodePos]
+    schedule: ScheduleDTO
+    durations_us: list[float] = Field(..., min_length=1, max_length=12)
+    n_frames: int = Field(default=60, ge=2, le=300)
+    noise: NoiseConfigDTO | None = None
+
+
+class SweepPointDTO(BaseModel):
+    duration_us: float
+    final_bitstring_probs: dict[str, float]
+
+
+class SweepDurationsResponse(BaseModel):
+    points: list[SweepPointDTO]
+    n_atoms: int
 
 
 # --------------------------------------------------------------------------- #

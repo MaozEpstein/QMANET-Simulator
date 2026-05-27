@@ -147,6 +147,10 @@ class NoiseModel:
     t2_blockaded_rabi_us: float = 8.9
     """Driven decoherence under max Rabi for blockaded pair."""
 
+    t1_rydberg_us: float = 30.0
+    """Rydberg-state lifetime (spontaneous decay |r⟩→|g⟩). Representative
+    QuEra Aquila value (whitepaper: 70Sr Rydberg ~30–35 µs)."""
+
 
 AQUILA_NOISE: Final[NoiseModel] = NoiseModel()
 """Default noise model — frozen with whitepaper values."""

@@ -8,6 +8,22 @@
 import { palette } from "../theme/palette";
 import type { SimulationFrameDTO } from "../api/rest";
 
+export interface OverlaySeries {
+  label: string;
+  values: (number | null | undefined)[];
+  color?: string;
+  /** Optional explicit y-range for the secondary axis. Defaults to data extent. */
+  yDomain?: [number, number];
+  /** Formatter for the legend value. Defaults to `v.toFixed(3)`. */
+  format?: (v: number) => string;
+}
+
+export interface Milestone {
+  frameIndex: number;
+  label: string;
+  color?: string;
+}
+
 interface Props {
   frames: SimulationFrameDTO[];
   totalDurationUs: number;
@@ -15,6 +31,8 @@ interface Props {
   onScrub?: (index: number) => void;
   pixelWidth?: number;
   pixelHeight?: number;
+  overlay?: OverlaySeries | null;
+  milestones?: Milestone[];
 }
 
 export function EvolutionPlot({
@@ -24,9 +42,11 @@ export function EvolutionPlot({
   onScrub,
   pixelWidth = 700,
   pixelHeight = 260,
+  overlay = null,
+  milestones = [],
 }: Props) {
   const padLeft = 50;
-  const padRight = 18;
+  const padRight = overlay ? 56 : 18;
   const padTop = 14;
   const padBottom = 26;
   const innerW = pixelWidth - padLeft - padRight;
@@ -51,6 +71,52 @@ export function EvolutionPlot({
 
   // 6-color palette cycling through atoms
   const atomColors = palette.plot;
+
+  // Overlay: secondary y-axis on the right
+  let overlayPath = "";
+  let overlayDomain: [number, number] = [0, 1];
+  let overlayValueAtCursor: number | null = null;
+  if (overlay && overlay.values.length > 0) {
+    const numeric = overlay.values
+      .map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null))
+      .filter((v): v is number => v !== null);
+    if (numeric.length > 0) {
+      let lo = Math.min(...numeric);
+      let hi = Math.max(...numeric);
+      if (overlay.yDomain) {
+        [lo, hi] = overlay.yDomain;
+      } else if (lo === hi) {
+        lo -= 0.5;
+        hi += 0.5;
+      } else {
+        const pad = (hi - lo) * 0.08;
+        lo -= pad;
+        hi += pad;
+      }
+      overlayDomain = [lo, hi];
+      const vToY = (v: number) =>
+        padTop + (1 - (v - lo) / (hi - lo)) * innerH;
+      const segs: string[] = [];
+      let started = false;
+      for (let j = 0; j < frames.length; j++) {
+        const v = overlay.values[j];
+        if (typeof v !== "number" || !Number.isFinite(v)) {
+          started = false;
+          continue;
+        }
+        const x = tToX(frames[j].t_us);
+        const y = vToY(v);
+        segs.push(`${started ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`);
+        started = true;
+      }
+      overlayPath = segs.join(" ");
+      if (currentFrameIndex !== undefined) {
+        const v = overlay.values[currentFrameIndex];
+        if (typeof v === "number" && Number.isFinite(v)) overlayValueAtCursor = v;
+      }
+    }
+  }
+  const overlayColor = overlay?.color ?? "#ffb84d";
 
   const handleMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!onScrub || frames.length === 0) return;
@@ -162,6 +228,81 @@ export function EvolutionPlot({
         >
           {totalDurationUs.toFixed(2)} µs
         </text>
+
+        {/* Overlay series (secondary y-axis on right) */}
+        {overlayPath && (
+          <>
+            <path
+              d={overlayPath}
+              fill="none"
+              stroke={overlayColor}
+              strokeWidth={1.8}
+              strokeOpacity={0.95}
+              strokeDasharray="6 3"
+              data-testid="evolution-overlay-path"
+            />
+            {[0, 0.5, 1].map((frac) => {
+              const v = overlayDomain[0] + frac * (overlayDomain[1] - overlayDomain[0]);
+              const y = padTop + (1 - frac) * innerH;
+              return (
+                <text
+                  key={`oy-${frac}`}
+                  x={padLeft + innerW + 6}
+                  y={y + 3}
+                  fontSize={10}
+                  fill={overlayColor}
+                  fontFamily="JetBrains Mono"
+                  textAnchor="start"
+                >
+                  {(overlay?.format ?? ((x: number) => x.toFixed(2)))(v)}
+                </text>
+              );
+            })}
+            <text
+              x={pixelWidth - 4}
+              y={padTop + 10}
+              fontSize={11}
+              fill={overlayColor}
+              fontFamily="JetBrains Mono"
+              textAnchor="end"
+              data-testid="evolution-overlay-label"
+            >
+              {overlay?.label}
+              {overlayValueAtCursor !== null
+                ? ` = ${(overlay?.format ?? ((x: number) => x.toFixed(3)))(overlayValueAtCursor)}`
+                : ""}
+            </text>
+          </>
+        )}
+
+        {/* Milestones along the time axis */}
+        {milestones.map((m, mi) => {
+          const f = frames[m.frameIndex];
+          if (!f) return null;
+          const x = tToX(f.t_us);
+          const y = padTop + innerH;
+          const c = m.color ?? palette.err;
+          return (
+            <g key={`ms-${mi}`} data-testid="evolution-milestone">
+              <title>{m.label}</title>
+              <line
+                x1={x}
+                x2={x}
+                y1={padTop}
+                y2={y}
+                stroke={c}
+                strokeOpacity={0.35}
+                strokeWidth={1}
+                strokeDasharray="2 4"
+              />
+              <polygon
+                points={`${x - 5},${y + 1} ${x + 5},${y + 1} ${x},${y - 6}`}
+                fill={c}
+                opacity={0.95}
+              />
+            </g>
+          );
+        })}
 
         {/* Cursor */}
         {currentFrameIndex !== undefined && frames[currentFrameIndex] && (

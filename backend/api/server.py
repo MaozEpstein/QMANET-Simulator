@@ -62,9 +62,13 @@ from api.models import (
     ScheduleSpectrumRequest,
     ScheduleSpectrumResponse,
     SpectrumTraceDTO,
+    NoiseConfigDTO,
     SimulateRequest,
     SimulateResponse,
     SimulationFrameDTO,
+    SweepDurationsRequest,
+    SweepDurationsResponse,
+    SweepPointDTO,
     ViolationDTO,
 )
 from pipeline import clique_to_mis as cqm
@@ -92,7 +96,7 @@ from pipeline.schedule import (
     from_breakpoints,
     validate_schedule,
 )
-from pipeline.simulate import SimulationFrame, SimulationResult, simulate
+from pipeline.simulate import NoiseConfig, SimulationFrame, SimulationResult, simulate
 
 app = FastAPI(
     title="Qsimulator",
@@ -390,13 +394,31 @@ def _frame_to_dto(f: SimulationFrame) -> SimulationFrameDTO:
         t_us=f.t_us,
         rydberg_populations=list(f.rydberg_populations),
         norm=f.norm,
+        gap=f.gap,
+        fidelity_gs=f.fidelity_gs,
+        energy_expect=f.energy_expect,
+        gs_energy=f.gs_energy,
+        purity=f.purity,
     )
+
+
+def _noise_from_dto(dto: NoiseConfigDTO | None) -> NoiseConfig | None:
+    if dto is None:
+        return None
+    return NoiseConfig(enabled=dto.enabled, t1_us=dto.t1_us, t2_us=dto.t2_us)
 
 
 def _run_simulation(req: SimulateRequest) -> list[SimulationFrame]:
     positions = [(p.x, p.y) for p in req.positions]
     schedule = _schedule_from_dto(req.schedule)
-    result = simulate(schedule, positions, n_frames=req.n_frames)
+    result = simulate(
+        schedule,
+        positions,
+        n_frames=req.n_frames,
+        noise=_noise_from_dto(req.noise),
+        track_bitstrings=req.track_bitstrings,
+        top_k=req.top_k,
+    )
     return list(result.frames), result
 
 
@@ -405,13 +427,72 @@ def simulate_run(req: SimulateRequest) -> SimulateResponse:
     """Run the full evolution synchronously and return all frames at once."""
     positions = [(p.x, p.y) for p in req.positions]
     schedule = _schedule_from_dto(req.schedule)
-    result = simulate(schedule, positions, n_frames=req.n_frames)
+    result = simulate(
+        schedule,
+        positions,
+        n_frames=req.n_frames,
+        noise=_noise_from_dto(req.noise),
+        track_bitstrings=req.track_bitstrings,
+        top_k=req.top_k,
+    )
     return SimulateResponse(
         frames=[_frame_to_dto(f) for f in result.frames],
         final_bitstring_probs=result.final_bitstring_probs,
+        tracked_bitstrings={k: list(v) for k, v in result.tracked_bitstrings.items()},
         n_atoms=result.n_atoms,
         duration_us=result.duration_us,
     )
+
+
+def _rescale_schedule_to_duration(s: ScheduleDTO, target_us: float) -> Schedule:
+    """Linearly rescale the schedule's time axis to [0, target_us]. Values
+    are unchanged — only the time arrays stretch/squeeze."""
+    orig_T = s.duration if s.duration > 0 else max(
+        max(s.omega.times, default=0.0),
+        max(s.delta.times, default=0.0),
+        max(s.phi.times, default=0.0),
+    )
+    if orig_T <= 0:
+        scale = 1.0
+    else:
+        scale = target_us / orig_T
+    return Schedule(
+        omega=PiecewiseLinear.from_lists([t * scale for t in s.omega.times], list(s.omega.values)),
+        delta=PiecewiseLinear.from_lists([t * scale for t in s.delta.times], list(s.delta.values)),
+        phi=PiecewiseLinear.from_lists([t * scale for t in s.phi.times], list(s.phi.values)),
+    )
+
+
+@app.post("/api/simulate/sweep_durations", response_model=SweepDurationsResponse)
+def simulate_sweep_durations(req: SweepDurationsRequest) -> SweepDurationsResponse:
+    """Run the same schedule shape at several durations. Returns the final
+    bitstring distribution at each T; the frontend turns this into the
+    classic approximation-ratio(T) / MIS-probability(T) curves that
+    visualise adiabaticity."""
+    positions = [(p.x, p.y) for p in req.positions]
+    noise = _noise_from_dto(req.noise)
+    points: list[SweepPointDTO] = []
+    n_atoms_seen = 0
+    for T in req.durations_us:
+        if T <= 0:
+            raise HTTPException(status_code=422, detail=f"duration must be > 0, got {T}")
+        schedule = _rescale_schedule_to_duration(req.schedule, T)
+        result = simulate(
+            schedule,
+            positions,
+            n_frames=req.n_frames,
+            extras=False,           # sweep doesn't need per-frame gap/fidelity
+            noise=noise,
+            track_bitstrings=False, # sweep only needs the FINAL distribution
+        )
+        n_atoms_seen = result.n_atoms
+        points.append(
+            SweepPointDTO(
+                duration_us=float(T),
+                final_bitstring_probs=result.final_bitstring_probs,
+            )
+        )
+    return SweepDurationsResponse(points=points, n_atoms=n_atoms_seen)
 
 
 # =============================================================================
@@ -651,7 +732,13 @@ async def simulate_ws(websocket: WebSocket) -> None:
             schedule = _schedule_from_dto(req.schedule)
             positions = [(p.x, p.y) for p in req.positions]
             sim_result_holder["result"] = simulate(
-                schedule, positions, n_frames=req.n_frames, on_frame=on_frame
+                schedule,
+                positions,
+                n_frames=req.n_frames,
+                on_frame=on_frame,
+                noise=_noise_from_dto(req.noise),
+                track_bitstrings=req.track_bitstrings,
+                top_k=req.top_k,
             )
         finally:
             asyncio.run_coroutine_threadsafe(queue.put(None), loop)
@@ -671,8 +758,11 @@ async def simulate_ws(websocket: WebSocket) -> None:
                 {"type": "frame", "frame": _frame_to_dto(frame).model_dump()}
             )
         final_probs: dict[str, float] = {}
+        tracked_bs: dict[str, list[float]] = {}
         if sim_result_holder["result"] is not None:
-            final_probs = dict(sim_result_holder["result"].final_bitstring_probs)
+            r = sim_result_holder["result"]
+            final_probs = dict(r.final_bitstring_probs)
+            tracked_bs = {k: list(v) for k, v in r.tracked_bitstrings.items()}
         await websocket.send_json(
             {
                 "type": "done",
@@ -680,6 +770,7 @@ async def simulate_ws(websocket: WebSocket) -> None:
                 "duration_us": duration,
                 "final_t_us": final_state_frame.t_us if final_state_frame else 0.0,
                 "final_bitstring_probs": final_probs,
+                "tracked_bitstrings": tracked_bs,
             }
         )
     except WebSocketDisconnect:
