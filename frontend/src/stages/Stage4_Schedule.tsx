@@ -833,43 +833,35 @@ function AnalysesPanel({
             onRunGap={onRunGap}
           />
         </SubSection>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-            gap: 14,
-            alignItems: "stretch",
-          }}
+        <SubSection
+          title="📊 Spectrum"
+          subtitle="ארבעת הע״ע הנמוכים של H(t) — ה-avoided crossing"
         >
-          <SubSection
-            title="📊 Spectrum"
-            subtitle="ארבעת הע״ע הנמוכים של H(t) — ה-avoided crossing"
-          >
-            <SpectrumTab
-              spectrum={spectrum}
-              spectrumTooMany={spectrumTooMany}
-              spectrumLoading={spectrumLoading}
-              gap={gap}
-              onRunSpectrum={onRunSpectrum}
-            />
-          </SubSection>
-          <SubSection
-            title="📐 Phase diagram"
-            subtitle="⟨Σnᵢ⟩ של מצב היסוד במישור (Ω, Δ)"
-          >
-            <PhaseTab
-              phase={phase}
-              phaseTooMany={phaseTooMany}
-              phaseLoading={phaseLoading}
-              onRunPhase={onRunPhase}
-              trajectory={trajectory}
-              cursorT={cursorT}
-              onPickPhase={onPickPhase}
-              phasePick={phasePick}
-              onClearPhasePick={onClearPhasePick}
-            />
-          </SubSection>
-        </div>
+          <SpectrumTab
+            spectrum={spectrum}
+            spectrumTooMany={spectrumTooMany}
+            spectrumLoading={spectrumLoading}
+            gap={gap}
+            onRunSpectrum={onRunSpectrum}
+            cursorT={cursorT}
+          />
+        </SubSection>
+        <SubSection
+          title="📐 Phase diagram"
+          subtitle="⟨Σnᵢ⟩ של מצב היסוד במישור (Ω, Δ)"
+        >
+          <PhaseTab
+            phase={phase}
+            phaseTooMany={phaseTooMany}
+            phaseLoading={phaseLoading}
+            onRunPhase={onRunPhase}
+            trajectory={trajectory}
+            cursorT={cursorT}
+            onPickPhase={onPickPhase}
+            phasePick={phasePick}
+            onClearPhasePick={onClearPhasePick}
+          />
+        </SubSection>
       </div>
     </Panel>
   );
@@ -1014,12 +1006,14 @@ function SpectrumTab({
   spectrumLoading,
   gap,
   onRunSpectrum,
+  cursorT,
 }: {
   spectrum: SpectrumTraceDTO | null;
   spectrumTooMany: { n: number; max: number } | null;
   spectrumLoading: boolean;
   gap: GapTraceDTO | null;
   onRunSpectrum: () => void;
+  cursorT: number;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1034,8 +1028,9 @@ function SpectrumTab({
               ? { t_us: gap.t_at_min_gap, gap: gap.min_gap }
               : null
           }
-          pixelWidth={560}
-          pixelHeight={320}
+          pixelWidth={980}
+          pixelHeight={420}
+          cursorT={cursorT}
         />
       )}
       {spectrumTooMany && (
@@ -1127,8 +1122,8 @@ function PhaseTab({
           </div>
           <PhaseDiagram2D
             diagram={phase}
-            pixelWidth={560}
-            pixelHeight={420}
+            pixelWidth={980}
+            pixelHeight={580}
             trajectory={trajectory}
             cursorT={cursorT}
             onPick={onPickPhase}
