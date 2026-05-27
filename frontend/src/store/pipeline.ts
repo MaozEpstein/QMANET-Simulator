@@ -26,6 +26,22 @@ export interface SimulationState {
   trackedBitstrings?: Record<string, number[]>;
 }
 
+/** Stage 7 post-process output, exposed for Stage 8 + persistence.
+ *  Only the *summary* (best result indices/bitstring/size) is persisted to
+ *  localStorage — the full shot batch lives in component-local state and is
+ *  not worth the bytes across reloads. */
+export interface PostProcessState {
+  bestVMIS: number[];
+  bestBitstring: string;
+  bestSize: number;
+  /** Best approximation ratio achieved across all shots — already in
+   *  batch.summary.best_r_ratio, copied here for handoff to Stage 8 + UI. */
+  bestRatio: number | null;
+  /** Number of shots in the batch. Lets Stage 8's chip say "N shots". */
+  nShots: number;
+  generatedAt: string;
+}
+
 /**
  * Stage 4 spectral analyses. These are *derived* from the schedule + embed,
  * but each one costs the user ~30-120 sec (dense diagonalisation) so we keep
@@ -103,6 +119,9 @@ interface PipelineState {
   setCurrentFrameIndex: (i: number) => void;
   setFinalBitstringProbs: (probs: Record<string, number> | undefined) => void;
   setTrackedBitstrings: (tracked: Record<string, number[]> | undefined) => void;
+
+  postProcess: PostProcessState | null;
+  setPostProcess: (p: PostProcessState | null) => void;
 
   /** Hashes of the upstream inputs that produced each derived state. Used by
    *  the stale-data banner system: a stage is considered "stale" if its stored
@@ -184,6 +203,9 @@ export const usePipeline = create<PipelineState>()(
         const upstream = get().manet?.graph;
         set((state) => ({
           mis: m,
+          // MIS change cascades through embed/schedule/sim — drop the
+          // post-process cache so Stage 8 doesn't route over a stale backbone.
+          postProcess: null,
           sourceHashes: {
             ...state.sourceHashes,
             mis: m ? stableHash(upstream ?? null) : undefined,
@@ -198,6 +220,7 @@ export const usePipeline = create<PipelineState>()(
         set((state) => ({
           embed: e,
           scheduleAnalysis: { ...EMPTY_ANALYSIS },
+          postProcess: null,
           sourceHashes: {
             ...state.sourceHashes,
             embed: e ? stableHash(upstream ?? null) : undefined,
@@ -212,6 +235,7 @@ export const usePipeline = create<PipelineState>()(
         set((state) => ({
           schedule: s,
           scheduleAnalysis: { ...EMPTY_ANALYSIS },
+          postProcess: null,
           sourceHashes: {
             ...state.sourceHashes,
             schedule: s
@@ -286,6 +310,8 @@ export const usePipeline = create<PipelineState>()(
         set((state) => ({
           sourceHashes: { ...state.sourceHashes, [key]: hash },
         })),
+      postProcess: null,
+      setPostProcess: (p) => set({ postProcess: p }),
     }),
     {
       name: "qsim.pipeline.v1",
@@ -312,6 +338,9 @@ export const usePipeline = create<PipelineState>()(
         embed: state.embed,
         schedule: state.schedule,
         sourceHashes: state.sourceHashes,
+        // Lightweight (< 1 KB for N ≤ 28) — keeps Stage 8's quantum backbone
+        // available after a reload without needing to re-run Stage 7.
+        postProcess: state.postProcess,
         // Spectrum / gap / phase are small (< 5 KB combined) and each one
         // costs the user tens of seconds to recompute, so they ride along.
         scheduleAnalysis: state.scheduleAnalysis,

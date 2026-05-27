@@ -14,14 +14,27 @@ const VIA_LABEL: Record<RouteVia, string> = {
 };
 
 export function Stage8_Routing() {
-  const { manet, mis } = usePipeline();
+  const { manet, mis, postProcess } = usePipeline();
   const [routing, setRouting] = useState<RoutingResponse | null>(null);
   const [src, setSrc] = useState<number | undefined>(undefined);
   const [dst, setDst] = useState<number | undefined>(undefined);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const backbone = mis?.max_clique_in_G ?? [];
+  // Prefer the quantum-derived V_MIS from Stage 7 when available — that's
+  // the whole pipeline narrative ("MANET → MIS via Rydberg → routing"). Fall
+  // back to Stage 2's exact MIS when Stage 7 hasn't run yet so the routing
+  // panel is still useful on a fresh pipeline.
+  const backboneSource: "quantum" | "exact" | "none" =
+    postProcess && postProcess.bestVMIS.length > 0
+      ? "quantum"
+      : (mis?.max_clique_in_G?.length ?? 0) > 0
+        ? "exact"
+        : "none";
+  const backbone =
+    backboneSource === "quantum"
+      ? postProcess!.bestVMIS
+      : (mis?.max_clique_in_G ?? []);
 
   const compute = useCallback(async () => {
     if (!manet || backbone.length === 0) return;
@@ -48,7 +61,7 @@ export function Stage8_Routing() {
   useEffect(() => {
     compute();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manet?.graph.n_nodes, mis?.size]);
+  }, [manet?.graph.n_nodes, mis?.size, postProcess?.bestSize, postProcess?.bestBitstring]);
 
   const activeRoute: RouteDTO | undefined = useMemo(() => {
     if (!routing || src === undefined || dst === undefined || src === dst) return undefined;
@@ -79,6 +92,38 @@ export function Stage8_Routing() {
       transition={{ duration: 0.4 }}
       style={{ display: "grid", gap: 16 }}
     >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "8px 14px",
+          background:
+            backboneSource === "quantum"
+              ? "rgba(179,136,255,0.10)"
+              : "rgba(154,166,191,0.08)",
+          border: `1px solid ${backboneSource === "quantum" ? palette.queraPurpleGlow : palette.queraPurpleSoft}`,
+          borderRadius: 8,
+          fontSize: 12.5,
+          color: backboneSource === "quantum" ? palette.queraPurpleGlow : palette.textSecondary,
+        }}
+      >
+        {backboneSource === "quantum" ? (
+          <>
+            🌀 <strong>backbone מ-quantum</strong> (שלב 7) · |V_MIS| = {backbone.length}
+            {postProcess?.bestRatio !== null && postProcess?.bestRatio !== undefined && (
+              <span style={{ color: palette.textMuted }} dir="ltr">
+                {" "}· R = {postProcess.bestRatio.toFixed(3)}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            🧮 <strong>backbone מ-exact MIS</strong> (שלב 2 — קלאסי) · |backbone| = {backbone.length}.
+            הרץ את שלב 7 כדי לראות את ה-backbone שמיוצר מהמחשב הקוונטי.
+          </>
+        )}
+      </div>
       <Panel
         title="שלב 8 · ניתוב MANET לפי backbone"
         subtitle="הקליק שמצאנו = backbone של הניתוב. כל שני קודקודים בו זמינים ב-1-hop. לחץ על קודקודים כדי לבחור (src, dst)."
