@@ -47,6 +47,7 @@ def _lowest_eigenvalues(
     delta: float,
     phi: float,
     k: int,
+    delta_per_atom: list[float] | None = None,
 ) -> np.ndarray:
     """Return the ``k`` lowest eigenvalues of H(Ω, Δ, φ) in ascending order.
 
@@ -65,10 +66,14 @@ def _lowest_eigenvalues(
     dim = 1 << n
 
     if n < SPARSE_MIN_ATOMS or k >= dim - 1:
-        H_dense = rydberg_hamiltonian(omega, delta, phi, positions)
+        H_dense = rydberg_hamiltonian(
+            omega, delta, phi, positions, delta_per_atom=delta_per_atom
+        )
         return np.linalg.eigvalsh(H_dense)[:k]
 
-    H_sparse = rydberg_hamiltonian_sparse(omega, delta, phi, positions)
+    H_sparse = rydberg_hamiltonian_sparse(
+        omega, delta, phi, positions, delta_per_atom=delta_per_atom
+    )
     k_request = min(2 * k + 4, dim - 2)
     vals = spla.eigsh(H_sparse, k=k_request, which="SA", return_eigenvectors=False)
     return np.sort(np.real(vals))[:k]
@@ -145,7 +150,10 @@ def compute_min_gap(
         omega = schedule.omega.value_at(t)
         delta = schedule.delta.value_at(t)
         phi = schedule.phi.value_at(t)
-        e = _lowest_eigenvalues(positions, omega, delta, phi, k=2)
+        delta_per_atom = schedule.delta_per_atom_at(t)
+        e = _lowest_eigenvalues(
+            positions, omega, delta, phi, k=2, delta_per_atom=delta_per_atom
+        )
         gap = float(e[1] - e[0]) if e.size >= 2 else 0.0
         gaps.append(max(0.0, gap))  # numerical noise can give tiny negatives
 
@@ -227,7 +235,10 @@ def compute_spectrum(
         omega = schedule.omega.value_at(t)
         delta = schedule.delta.value_at(t)
         phi = schedule.phi.value_at(t)
-        e = _lowest_eigenvalues(positions, omega, delta, phi, k=k)
+        delta_per_atom = schedule.delta_per_atom_at(t)
+        e = _lowest_eigenvalues(
+            positions, omega, delta, phi, k=k, delta_per_atom=delta_per_atom
+        )
         rows.append(tuple(float(v) for v in e[:k]))
     return SpectrumTrace(
         times=tuple(times),

@@ -136,10 +136,29 @@ def _build_hamiltonian_pieces(
     H_x = np.zeros((dim, dim), dtype=complex)
     H_y = np.zeros((dim, dim), dtype=complex)
     H_n = np.zeros((dim, dim), dtype=complex)
+    # LD-AQC weights: H_n becomes Σ_i f_i(d_i, a) · n̂_i. Because Δ_i(t) =
+    # f_i · Δ(t) factorises a time-independent per-atom weight out of the
+    # detuning curve, the decomposition H(t) = H_vdw + … + (-Δ(t))·H_n
+    # still holds — we just replace H_n with the weighted sum. Schedule
+    # carries the degrees and `f_i` profile so this works transparently
+    # for all downstream callers (simulate, gap, phase diagram).
+    from .schedule import profile_value
+    use_ld = (
+        getattr(schedule, "mode", "global") == "ld_aqc"
+        and len(getattr(schedule, "atom_degrees", ())) == n
+    )
+    weights = (
+        [
+            profile_value(schedule.profile, d_i, schedule.ld_aqc_strength_a)
+            for d_i in schedule.atom_degrees
+        ]
+        if use_ld
+        else [1.0] * n
+    )
     for i in range(n):
         H_x += _local_op(sx, i, n)
         H_y += _local_op(sy, i, n)
-        H_n += _local_op(_N_OP, i, n)
+        H_n += weights[i] * _local_op(_N_OP, i, n)
 
     H_vdw = np.zeros((dim, dim), dtype=complex)
     for i in range(n):

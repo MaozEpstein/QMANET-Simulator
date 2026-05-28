@@ -8,6 +8,7 @@ import {
   wouldCollideWithExisting,
 } from "../lib/graphValidation";
 import { PRESETS, type PresetSpec } from "../lib/graphPresets";
+import { computeDegrees } from "../lib/graphMetrics";
 import {
   GRID_TYPES,
   computeGridGeometry,
@@ -55,6 +56,14 @@ interface Props {
    * clear/preset/undo). Use this to live-sync the editor into a parent store.
    */
   onCommit?: (payload: MANETResponse) => void;
+  /**
+   * When true, render each vertex's degree d_i as a small label above the
+   * node circle (Karni 2026 Fig 1a style). Owned by the parent Stage so the
+   * toggle state survives editor remounts.
+   */
+  showDegrees?: boolean;
+  /** Controlled toggle from the parent. */
+  onShowDegreesChange?: (value: boolean) => void;
 }
 
 function graphsEqual(a: NodePos[], b: NodePos[], ae: [number, number][], be: [number, number][]): boolean {
@@ -122,7 +131,14 @@ function distancePointToSegment(
   return distance(px, py, ax + t * dx, ay + t * dy);
 }
 
-export function GraphEditor({ onSave, onCancel, externalValue, onCommit }: Props) {
+export function GraphEditor({
+  onSave,
+  onCancel,
+  externalValue,
+  onCommit,
+  showDegrees = false,
+  onShowDegreesChange,
+}: Props) {
   const [tool, setTool] = useState<Tool>("addNode");
   const [nodes, setNodes] = useState<NodePos[]>(
     () => externalValue?.graph.node_positions ?? [],
@@ -130,6 +146,10 @@ export function GraphEditor({ onSave, onCancel, externalValue, onCommit }: Props
   const [edges, setEdges] = useState<[number, number][]>(
     () => externalValue?.graph.edges ?? [],
   );
+  const nodeDegrees = useMemo(() => {
+    const maxId = nodes.reduce((m, n) => Math.max(m, n.id), -1);
+    return computeDegrees(maxId + 1, edges);
+  }, [nodes, edges]);
   const [commRadius, setCommRadius] = useState(DEFAULT_COMM_RADIUS);
   const [showCommRadius, setShowCommRadius] = useState(true);
   const [gridStep, setGridStep] = useState(DEFAULT_GRID_STEP);
@@ -641,6 +661,8 @@ export function GraphEditor({ onSave, onCancel, externalValue, onCommit }: Props
               onNodeMouseDown={handleNodeMouseDown}
               onNodeClick={handleNodeClick}
               onNodeHover={setHoverNode}
+              showDegrees={showDegrees}
+              degrees={nodeDegrees}
             />
           </svg>
           {transientMsg && (
@@ -685,6 +707,8 @@ export function GraphEditor({ onSave, onCancel, externalValue, onCommit }: Props
         onCancel={onCancel ? handleCancel : undefined}
         tool={tool}
         pendingEdgeStart={pendingEdgeStart}
+        showDegrees={showDegrees}
+        setShowDegrees={onShowDegreesChange}
       />
 
       {saveDialog && (
@@ -1123,6 +1147,8 @@ function NodesLayer({
   onNodeMouseDown,
   onNodeClick,
   onNodeHover,
+  showDegrees,
+  degrees,
 }: {
   nodes: NodePos[];
   tool: Tool;
@@ -1131,6 +1157,8 @@ function NodesLayer({
   onNodeMouseDown: (id: number, evt: React.MouseEvent<SVGElement>) => void;
   onNodeClick: (id: number) => void;
   onNodeHover: (id: number | null) => void;
+  showDegrees?: boolean;
+  degrees?: number[];
 }) {
   return (
     <g>
@@ -1181,6 +1209,23 @@ function NodesLayer({
             >
               {n.id}
             </text>
+            {showDegrees && (
+              <text
+                x={px}
+                y={py - NODE_RADIUS_PX - 6}
+                textAnchor="middle"
+                fontSize={10}
+                fontWeight={600}
+                fontFamily="JetBrains Mono, monospace"
+                fill={palette.queraPurpleGlow}
+                stroke={palette.bgInset}
+                strokeWidth={3}
+                paintOrder="stroke"
+                pointerEvents="none"
+              >
+                d={degrees?.[n.id] ?? 0}
+              </text>
+            )}
           </g>
         );
       })}
@@ -1229,6 +1274,8 @@ function SidePanel({
   onCancel,
   tool,
   pendingEdgeStart,
+  showDegrees,
+  setShowDegrees,
 }: {
   nNodes: number;
   nEdges: number;
@@ -1249,6 +1296,8 @@ function SidePanel({
   onCancel?: () => void;
   tool: Tool;
   pendingEdgeStart: number | null;
+  showDegrees?: boolean;
+  setShowDegrees?: (v: boolean) => void;
 }) {
   const gridSpec = GRID_TYPES.find((g) => g.id === gridType);
   const sizeLabel = gridSpec?.sizeLabel || "מרווח רשת (µm)";
@@ -1340,6 +1389,21 @@ function SidePanel({
           style={{ width: "100%" }}
         />
       </div>
+
+      {setShowDegrees && (
+        <label
+          style={miniCheckboxLabelStyle}
+          title="הצג ליד כל קודקוד את דרגתו (Karni 2026, Fig 1a) — הבסיס ל-LD-AQC schedule"
+        >
+          <input
+            type="checkbox"
+            checked={showDegrees ?? false}
+            onChange={(e) => setShowDegrees(e.target.checked)}
+            style={{ margin: 0 }}
+          />
+          הצג דרגה (d_i)
+        </label>
+      )}
 
       <div style={{ opacity: gridDisabled ? 0.5 : 1 }}>
         <label

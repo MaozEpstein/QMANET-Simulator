@@ -8,6 +8,7 @@ import type {
   PostProcessResultDTO,
   SAResponse,
 } from "../api/rest";
+import { computeDegrees } from "../lib/graphMetrics";
 import { AtomArray2D } from "../components/AtomArray2D";
 import { BitstringHistogram } from "../components/BitstringHistogram";
 import { ExportButton } from "../components/ExportButton";
@@ -70,7 +71,28 @@ export function Stage7_PostProcess() {
           seed: 42,
         });
         setMeasurement(m);
-        const b = await api.postprocessBatch(m.bitstrings, targetGraph, 0);
+        // Pass the same LD-AQC config the user picked in Stage 4. When
+        // mode is "global" HP_LD reduces to HP_trad (Karni SM A.iii); when
+        // "ld_aqc" the energy weights pick up the per-atom profile.
+        const sdto = schedule.schedule;
+        const ldExtras =
+          sdto?.mode === "ld_aqc"
+            ? {
+                mode: "ld_aqc" as const,
+                profile: sdto.profile,
+                ld_aqc_strength_a: sdto.ld_aqc_strength_a,
+                atom_degrees:
+                  sdto.atom_degrees && sdto.atom_degrees.length > 0
+                    ? sdto.atom_degrees
+                    : computeDegrees(targetGraph.n_nodes, targetGraph.edges),
+              }
+            : undefined;
+        const b = await api.postprocessBatch(
+          m.bitstrings,
+          targetGraph,
+          0,
+          ldExtras,
+        );
         setBatch(b);
         // Publish the best result to the store so Stage 8 can route over the
         // quantum-derived backbone, and reload-after-refresh stays useful.
@@ -340,6 +362,9 @@ export function Stage7_PostProcess() {
                 sa={sa}
                 exactMisSize={mis?.size ?? 0}
               />
+            )}
+            {batch && batch.summary.hp_trad != null && (
+              <HardnessParameterCard summary={batch.summary} />
             )}
           </div>
 
@@ -921,6 +946,112 @@ function ShotsSummaryCard({
             </span>
           </Fragment>
         ))}
+      </div>
+    </div>
+  );
+}
+
+
+function HardnessParameterCard({
+  summary,
+}: {
+  summary: PostProcessBatchResponse["summary"];
+}) {
+  // Karni 2026 generalised Hardness Parameter HP_LD (eq. 8). Always
+  // computed alongside the traditional Karni HP_trad (eq. 7) so the user
+  // can see by how much the energy-weighted definition shifts the score —
+  // for global mode the two are equal by SM A.iii.
+  const hpTrad = summary.hp_trad ?? 0;
+  const hpLd = summary.hp_ld ?? 0;
+  const connected = summary.hp_n_connected_is ?? 0;
+  const disconnected = summary.hp_n_disconnected_is ?? 0;
+  const diff = hpLd - hpTrad;
+  const sameWithinTol = Math.abs(diff) < 1e-6;
+  return (
+    <div
+      style={{
+        padding: "10px 12px",
+        background: palette.bgInset,
+        borderRadius: 10,
+        border: `1px solid ${palette.queraPurpleSoft}`,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          color: palette.textMuted,
+          textTransform: "uppercase",
+          letterSpacing: 1,
+          marginBottom: 8,
+          fontFamily: "JetBrains Mono",
+        }}
+        dir="ltr"
+        title="Karni 2026 hardness parameter. HP_LD generalises HP_trad with energy weights w_j = 1/|E_j − E_MIS| and collapses to HP_trad in global mode (SM A.iii)."
+      >
+        hardness parameter · Karni 2026
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "auto 1fr",
+          gap: "4px 12px",
+          alignItems: "baseline",
+        }}
+        dir="ltr"
+      >
+        <span style={{ fontSize: 11.5, color: palette.textMuted, fontFamily: "JetBrains Mono" }}>
+          HP_trad (eq. 7)
+        </span>
+        <span
+          style={{
+            fontFamily: "JetBrains Mono",
+            fontSize: 15,
+            color: palette.queraPurpleGlow,
+            fontWeight: 700,
+          }}
+        >
+          {hpTrad.toFixed(3)}
+        </span>
+        <span style={{ fontSize: 11.5, color: palette.textMuted, fontFamily: "JetBrains Mono" }}>
+          HP_LD (eq. 8)
+        </span>
+        <span
+          style={{
+            fontFamily: "JetBrains Mono",
+            fontSize: 15,
+            color: sameWithinTol ? palette.textSecondary : palette.warn,
+            fontWeight: 700,
+          }}
+        >
+          {hpLd.toFixed(3)}
+          {sameWithinTol ? " (= HP_trad · global mode)" : ""}
+        </span>
+        <span style={{ fontSize: 11.5, color: palette.textMuted, fontFamily: "JetBrains Mono" }}>
+          |MIS|-1 IS · connected
+        </span>
+        <span
+          style={{
+            fontFamily: "JetBrains Mono",
+            fontSize: 13,
+            color: palette.textSecondary,
+          }}
+        >
+          {connected}
+        </span>
+        <span style={{ fontSize: 11.5, color: palette.textMuted, fontFamily: "JetBrains Mono" }}>
+          |MIS|-1 IS · disconnected
+        </span>
+        <span
+          style={{
+            fontFamily: "JetBrains Mono",
+            fontSize: 13,
+            color: disconnected > 0 ? palette.warn : palette.textSecondary,
+          }}
+          title="ISs of size |MIS|−1 that are not extendable to a MIS by a single vertex flip — Karni 2026 calls these 'trap states' that LD-AQC penalises energetically."
+        >
+          {disconnected}
+          {disconnected > 0 ? " (trap states)" : ""}
+        </span>
       </div>
     </div>
   );

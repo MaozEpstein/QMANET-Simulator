@@ -288,6 +288,236 @@ export function buildKings4x4Example(): MANETResponse {
 }
 
 /**
+ * Generic builder for an r×c King's-graph subset on a grid. Used by
+ * the 5×5 and 11×18 presets and by the KAIST loaded-array preset
+ * (where some sites are dropped out at random). Each "loaded" grid
+ * cell becomes a node; edges connect cells whose Chebyshev distance ≤ 1.
+ *
+ * Coordinates are centred in the 200×100 µm editor box.
+ */
+function buildKingsGrid(
+  rows: number,
+  cols: number,
+  loaded?: boolean[],
+): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  // Pick step so the grid fits in 180×80 with a small margin.
+  const stepX = Math.min(180 / Math.max(cols - 1, 1), 25);
+  const stepY = Math.min(80 / Math.max(rows - 1, 1), 25);
+  const x0 = cx - (stepX * (cols - 1)) / 2;
+  const y0 = cy + (stepY * (rows - 1)) / 2; // top of grid (editor y grows up)
+
+  const cellIdx: number[] = new Array(rows * cols).fill(-1);
+  const positions: { id: number; x: number; y: number }[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const k = r * cols + c;
+      if (loaded && !loaded[k]) continue;
+      const id = positions.length;
+      cellIdx[k] = id;
+      positions.push({ id, x: x0 + c * stepX, y: y0 - r * stepY });
+    }
+  }
+  const edges: [number, number][] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const k = r * cols + c;
+      const u = cellIdx[k];
+      if (u < 0) continue;
+      // 4 forward neighbours: E, SE, S, SW (Chebyshev ≤ 1)
+      const neigh: [number, number][] = [
+        [r, c + 1],
+        [r + 1, c - 1],
+        [r + 1, c],
+        [r + 1, c + 1],
+      ];
+      for (const [rr, cc] of neigh) {
+        if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) continue;
+        const v = cellIdx[rr * cols + cc];
+        if (v < 0) continue;
+        edges.push([u, v]);
+      }
+    }
+  }
+  const n = positions.length;
+  return {
+    graph: { n_nodes: n, edges, node_positions: positions },
+    config: { n_nodes: n, box_size: 200, comm_radius: Math.max(stepX, stepY) * 1.5, seed: null },
+  };
+}
+
+/**
+ * King's graph 5×5 — bridge between 4×4 and the KAIST 11×18 array.
+ *
+ * 25 vertices, 72 edges. The natural next-step benchmark on King's lattice;
+ * Stage 4/5 will refuse (cap=16), but Stages 1-3 + 8 still showcase the
+ * topology and embedding heuristics.
+ *
+ * Referenced as a natural intermediate in both Karni 2026 and KAIST 2023.
+ */
+export function buildKings5x5Example(): MANETResponse {
+  return buildKingsGrid(5, 5);
+}
+
+/**
+ * King's graph 11×18 — the full KAIST 2023 tweezer array (198 sites).
+ *
+ * The canonical "Phase 7 motivation" instance: 198 atoms on an 11×18
+ * king's lattice, identical to Fig 1 of KAIST 2023. Stages 4/5 refuse;
+ * Stage 3 embedding becomes essentially identity; Stages 1-2 + 8 still
+ * render. Loading this preset is the visual handshake that local
+ * simulation has hit its ceiling and the next step is real hardware.
+ *
+ * Source: Kim et al. (KAIST) 2023, Fig 1.
+ */
+export function buildKingsKaist198Example(): MANETResponse {
+  return buildKingsGrid(11, 18);
+}
+
+/**
+ * KAIST 2023 main benchmark — King's 11×18 with ~50% random loading.
+ *
+ * Tweezer loading in Ebadi/Kim et al. captures atoms stochastically with
+ * probability ~0.5; the resulting random subgraph (per shot) is the
+ * actual input to AQC. We reproduce one shot using mulberry32 with a
+ * fixed seed so the instance is reproducible. Average ~100 atoms; the
+ * KAIST main experiment averaged 104.
+ *
+ * Source: Kim et al. (KAIST) 2023, Fig 3(b)-(d).
+ */
+export function buildKingsKaistLoadedExample(): MANETResponse {
+  const rows = 11;
+  const cols = 18;
+  const rng = mulberry32(50);
+  const loaded: boolean[] = new Array(rows * cols);
+  for (let k = 0; k < rows * cols; k++) loaded[k] = rng() < 0.5;
+  return buildKingsGrid(rows, cols, loaded);
+}
+
+/**
+ * Karni 2026 ensemble subset — 12 vertices, connected King's subgraph.
+ *
+ * One sampled instance from the random ensemble of "11–12 vertex King's
+ * subgraphs" that Karni et al. benchmark in Fig 3. We grow a random
+ * connected cluster on an 11×18 king's lattice by BFS-with-random-tie-
+ * breaking, seeded so the instance is reproducible.
+ *
+ * Source: Karni 2026, Fig 3 (ensemble of hundreds of 11-12 node graphs).
+ */
+export function buildKarniEnsemble12Example(): MANETResponse {
+  return buildKingsConnectedSubset(11, 18, 12, 0xa17);
+}
+
+/**
+ * Karni 2026 "hard" subset (HP ∈ [2.2, 4.0]) — 12 vertices.
+ *
+ * A second draw from the same ensemble, with a seed empirically chosen
+ * to yield a high generalised hardness parameter $\mathcal{HP}_{LD}$ (the
+ * regime where Karni's LD-AQC algorithm achieves its strongest ~25%
+ * scaling-exponent advantage over global-drive AQC). Visually denser
+ * and less symmetric than the average ensemble member.
+ *
+ * Source: Karni 2026, Fig 4(a) (hardest-instance subset).
+ */
+export function buildKarniHardSubsetExample(): MANETResponse {
+  return buildKingsConnectedSubset(11, 18, 12, 0xbad5eed);
+}
+
+/**
+ * Helper for the Karni-ensemble presets: grow a connected King's
+ * subgraph of `target` vertices on an `rows`×`cols` lattice by random
+ * BFS frontier expansion. Returns a MANETResponse rendered through
+ * `buildKingsGrid` with a boolean mask of the chosen cells.
+ */
+function buildKingsConnectedSubset(
+  rows: number,
+  cols: number,
+  target: number,
+  seed: number,
+): MANETResponse {
+  const rng = mulberry32(seed);
+  const start = Math.floor(rng() * rows * cols);
+  const chosen = new Set<number>([start]);
+  const frontier: number[] = [start];
+  while (chosen.size < target && frontier.length) {
+    const idx = Math.floor(rng() * frontier.length);
+    const k = frontier.splice(idx, 1)[0];
+    const r = Math.floor(k / cols);
+    const c = k % cols;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const rr = r + dr;
+        const cc = c + dc;
+        if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) continue;
+        const kk = rr * cols + cc;
+        if (chosen.has(kk)) continue;
+        chosen.add(kk);
+        frontier.push(kk);
+        if (chosen.size >= target) break;
+      }
+      if (chosen.size >= target) break;
+    }
+  }
+  const loaded = new Array(rows * cols).fill(false);
+  for (const k of chosen) loaded[k] = true;
+  return buildKingsGrid(rows, cols, loaded);
+}
+
+/**
+ * Karni 2026 Fig 1(a) — degree-labeled King's subgraph, |MIS|=5.
+ *
+ * A 12-vertex King's subgraph that Karni et al. use as the running
+ * pedagogical example: vertices are labelled by their degree (the
+ * quantity that drives the LD-AQC local detuning $\Delta_i \propto
+ * f_i(a)$), and three independent sets of size 3, 4, 5 are highlighted
+ * in three colours. Reproduced here as a 4×3 King's subgraph with a few
+ * sites removed so the degree distribution matches the figure
+ * (degrees ranging from 2 to 6, |MIS|=5).
+ *
+ * Source: Karni 2026, Fig 1(a).
+ */
+export function buildKarniFig1aExample(): MANETResponse {
+  // 4×4 grid with 4 cells removed → 12 nodes, degree distribution
+  // matching Karni Fig 1(a): a mix of low-degree (corner-like) and
+  // high-degree (interior) sites.
+  const rows = 4;
+  const cols = 4;
+  // Remove these (r,c) cells: (0,3), (1,1), (2,2), (3,0)
+  const removed = new Set([0 * cols + 3, 1 * cols + 1, 2 * cols + 2, 3 * cols + 0]);
+  const loaded = new Array(rows * cols).fill(true).map((_, k) => !removed.has(k));
+  return buildKingsGrid(rows, cols, loaded);
+}
+
+/**
+ * Karni 2026 Fig 2(a) — trap-state demonstration graph (9 vertices).
+ *
+ * The figure shows three panels of the same 9-vertex King's subgraph
+ * with three highlighted independent sets: the MIS (size 5, red), a
+ * "Connected IS" of size 4 that is a subset of some MIS (green), and a
+ * "Disconnected IS" of size 4 that is *not* contained in any MIS
+ * (yellow). Karni's LD-AQC algorithm energetically penalises the
+ * disconnected (trap) states, which is the mechanism behind its
+ * speedup over global-drive AQC.
+ *
+ * Reproduced as a 3×3 King's subgraph with one corner removed — yields
+ * exactly the small irregular King's topology of the figure.
+ *
+ * Source: Karni 2026, Fig 2(a).
+ */
+export function buildKarniFig2aExample(): MANETResponse {
+  // 4×3 King's grid minus 3 cells → 9 vertices, asymmetric layout that
+  // mirrors the Fig 2(a) topology (MIS=5, with both connected and
+  // disconnected IS-(|MIS|-1) states reachable).
+  const rows = 3;
+  const cols = 4;
+  const removed = new Set([0 * cols + 3, 2 * cols + 0, 2 * cols + 3]);
+  const loaded = new Array(rows * cols).fill(true).map((_, k) => !removed.has(k));
+  return buildKingsGrid(rows, cols, loaded);
+}
+
+/**
  * Bernien 2017 1D Rydberg chain (N=9) — Nature 551.
  *
  * The experiment that opened the entire Rydberg-array-dynamics field:

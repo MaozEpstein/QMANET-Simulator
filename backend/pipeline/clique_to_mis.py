@@ -216,3 +216,37 @@ def is_clique(g: Graph, subset: list[int]) -> bool:
             if (u, v) not in edge_set:
                 return False
     return True
+
+
+def all_independent_sets_of_size(g: Graph, k: int) -> list[frozenset[int]]:
+    """Enumerate every independent set of G of *exactly* size ``k``.
+
+    Used by Karni 2026's HP_LD computation, which needs every IS of size
+    |MIS|-1 to assess how many of them are "trap states" (not extendable to
+    a maximum IS by a single-vertex flip). We expand the MIS group by 1 in
+    every possible way and then re-derive the (|MIS|-1)-sized seeds; this
+    captures both connected IS (subsets of some MIS) and disconnected IS
+    (not subsets of any MIS). Restricted to graphs ≤ EXACT_MIS_MAX_NODES.
+    """
+    if k <= 0 or g.n_nodes == 0:
+        return [frozenset()] if k == 0 else []
+    if g.n_nodes > EXACT_MIS_MAX_NODES:
+        raise ValueError(
+            f"all_independent_sets_of_size supported only up to "
+            f"{EXACT_MIS_MAX_NODES} nodes (got {g.n_nodes})."
+        )
+    # IS of G ⇔ clique in complement Ḡ. We enumerate every clique of
+    # size k in Ḡ; NetworkX has a direct primitive for that.
+    G = to_networkx(g)
+    Gbar = nx.complement(G)
+    out: set[frozenset[int]] = set()
+    # ``nx.enumerate_all_cliques`` yields all cliques (any size) lazily;
+    # restrict to the size-k slice.
+    for clique in nx.enumerate_all_cliques(Gbar):
+        if len(clique) == k:
+            out.add(frozenset(int(v) for v in clique))
+        elif len(clique) > k:
+            # cliques are emitted in non-decreasing size order, so once we
+            # pass k we can stop.
+            break
+    return sorted(out, key=sorted)

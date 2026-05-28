@@ -25,8 +25,15 @@ import {
   buildHeawoodExample,
   buildK33Example,
   buildK5Example,
+  buildKarniEnsemble12Example,
+  buildKarniFig1aExample,
+  buildKarniFig2aExample,
+  buildKarniHardSubsetExample,
   buildKings3x3Example,
   buildKings4x4Example,
+  buildKings5x5Example,
+  buildKingsKaist198Example,
+  buildKingsKaistLoadedExample,
   buildManetRGG12Example,
   buildManetRGG20Example,
   buildMobiusKantorExample,
@@ -49,7 +56,14 @@ import {
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
 
-type CategoryId = "myGraphs" | "starter" | "topology" | "paper" | "chaotic" | "stress";
+type CategoryId =
+  | "myGraphs"
+  | "starter"
+  | "topology"
+  | "paper"
+  | "kingsLattice"
+  | "chaotic"
+  | "stress";
 
 type LoadingStep = "complement" | "embed" | "schedule" | null;
 
@@ -96,6 +110,12 @@ const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?:
     id: "paper",
     title: "רפרודוקציה ממאמרים",
     subtitle: "אותם פרמטרים כמו ב-Ebadi 2022 / Bernien 2017",
+  },
+  {
+    id: "kingsLattice",
+    title: "King's lattice — Karni & KAIST",
+    subtitle:
+      "9 גרפים על King's graph מהמאמרים החדשים: LD-AQC (Karni 2026) + dataset של 733K גרפים (KAIST 2023)",
   },
   {
     id: "chaotic",
@@ -182,25 +202,102 @@ const EXAMPLES: Example[] = [
   },
   {
     id: "kings3x3",
-    name: "King's 3×3 (Ebadi 2022)",
+    name: "King's 3×3",
     englishName: "King's graph 3×3",
     description:
-      "הבנצ'מרק הקנוני של Ebadi 2022 §6 ל-MIS על Rydberg array. 9 קודקודים על רשת 3×3, קשתות בין כל זוג שכנים במהלך מלך (8 כיוונים). α(G)=4 (פינות), ω(G)=4 (ריבוע 2×2).",
+      "הבנצ'מרק הקנוני ל-MIS על Rydberg array. 9 קודקודים על רשת 3×3, קשתות בין כל זוג שכנים במהלך מלך (8 כיוונים). α(G)=4 (פינות), ω(G)=4 (ריבוע 2×2). תת-מקרה של ה-King's lattice שמשמש בשלושת המאמרים — Ebadi, KAIST ו-Karni.",
     n: 9,
-    category: "paper",
-    paperRef: "Ebadi 2022 §6",
+    category: "kingsLattice",
+    paperRef: "Ebadi 2022 §6 · KAIST 2023 · Karni 2026",
     build: buildKings3x3Example,
   },
   {
     id: "kings4x4",
-    name: "King's 4×4 (Ebadi 2022, Fig 4)",
+    name: "King's 4×4",
     englishName: "King's graph 4×4",
     description:
-      "הרחבת ה-benchmark של Ebadi לרשת 4×4: 16 קודקודים, 42 קשתות, α(G)=4 (פינות), ω(G)=4 (כל 2×2). ⚠ 16 אטומים → Stage 5 (sesolve מלא) ו-Stage 4 spectrum/פאזות לא יעבדו. שאר הצינור כן.",
+      "הרחבת ה-benchmark של Ebadi לרשת 4×4: 16 קודקודים, 42 קשתות, α(G)=4 (פינות), ω(G)=4 (כל 2×2). ⚠ 16 אטומים → Stage 5 (sesolve מלא) ו-Stage 4 spectrum/פאזות לא יעבדו. שאר הצינור כן. גם KAIST 2023 ו-Karni 2026 מתייחסים לרשתות King's בגדלים האלו כתתי-מקרים.",
     n: 16,
-    category: "paper",
-    paperRef: "Ebadi 2022 §6 (Fig 4)",
+    category: "kingsLattice",
+    paperRef: "Ebadi 2022 Fig 4 · KAIST 2023 · Karni 2026",
     build: buildKings4x4Example,
+  },
+  {
+    id: "kings5x5",
+    name: "King's 5×5",
+    englishName: "King's graph 5×5",
+    description:
+      "המסלול הטבעי בין 4×4 ל-11×18 של KAIST: 25 קודקודים על רשת 5×5, 72 קשתות. ⚠ Stages 4/5 יסרבו (cap=16), Stages 1-3 + 8 כן מציגים את הטופולוגיה והפריסה. מאפשר לראות איך embedding ו-routing מתפתחים כשהרשת גדלה.",
+    n: 25,
+    category: "kingsLattice",
+    paperRef: "KAIST 2023 · Karni 2026 (גודל ביניים)",
+    build: buildKings5x5Example,
+  },
+  {
+    id: "kings-kaist-198",
+    name: "KAIST 11×18 — מערך מלא (198)",
+    englishName: "KAIST 2023 full tweezer array",
+    description:
+      "המערך המלא של 198 מלכודות מ-Fig 1 של KAIST 2023: 11×18 King's lattice (nearest 6µm + next-nearest 6√2µm באלכסון = blockade radius ~10µm). ⚠ 198 אטומים — Stages 4/5 ייכשלו בוודאות; מיועד ל-Phase 7 (Braket/QuEra). Stage 8 routing עדיין רץ ומדגים את התשתית הפיזית של ה-dataset של 733K הגרפים.",
+    n: 198,
+    category: "kingsLattice",
+    paperRef: "KAIST 2023, Fig 1",
+    build: buildKingsKaist198Example,
+  },
+  {
+    id: "kings-kaist-loaded",
+    name: "KAIST loaded ~50%",
+    englishName: "KAIST main benchmark (random loading)",
+    description:
+      "הבנצ'מרק המרכזי של KAIST 2023 (Fig 3): על המערך 11×18, כל מלכודת נטענת באטום בהסתברות ~0.5 (collisional blockade). תוצאה: subgraph אקראי של ~100 אטומים — בדיוק מה ש-AQC רץ עליו במאמר. seed קבוע (50) לרפרודוקציה. ⚠ עדיין מעבר ליכולת הסימולציה המקומית.",
+    n: 99,
+    category: "kingsLattice",
+    paperRef: "KAIST 2023, Fig 3(b-d)",
+    build: buildKingsKaistLoadedExample,
+  },
+  {
+    id: "karni-ensemble-12",
+    name: "Karni ensemble — subgraph קשיר (12)",
+    englishName: "Karni 2026 ensemble sample (n=12)",
+    description:
+      "דגימה אחת מהאנסמבל של מאות גרפים אקראיים בני 11-12 קודקודים שעליהם Karni 2026 רצים את ה-benchmark של LD-AQC (Fig 3). תת-קבוצה קשירה של King's lattice, גדלה ב-BFS עם seed קבוע (0xa17). הגרף עליו תוכל בעתיד להראות את היתרון של detuning מקומי תלוי-דרגה.",
+    n: 12,
+    category: "kingsLattice",
+    paperRef: "Karni 2026, Fig 3 (ensemble)",
+    build: buildKarniEnsemble12Example,
+  },
+  {
+    id: "karni-hard-subset",
+    name: "Karni hard subset (HP גבוה)",
+    englishName: "Karni 2026 hardest-instance subset",
+    description:
+      "תת-קבוצת ה-instances הקשים מ-Fig 4(a) של Karni 2026 (HP בין 2.2 ל-4.0) — באזור הזה ה-LD-AQC משיג את היתרון המקסימלי של ~25% במעריך הסקלינג מול AQC קלאסי. 12 קודקודים על King's lattice עם seed נבחר (0xbad5eed) שמייצר טופולוגיה דחוסה ופחות סימטרית.",
+    n: 12,
+    category: "kingsLattice",
+    paperRef: "Karni 2026, Fig 4(a)",
+    build: buildKarniHardSubsetExample,
+  },
+  {
+    id: "karni-fig1a",
+    name: "Karni Fig 1(a) — degree-labeled",
+    englishName: "Karni 2026 Fig 1(a) running example",
+    description:
+      "הגרף הפדגוגי הראשי של Karni 2026: 12 קודקודים על תת-King's-grid, |MIS|=5. במאמר כל קודקוד מתויג בדרגה שלו (d_i) — הכמות שמכתיבה את ה-detuning המקומי f_i(a) ב-LD-AQC. שלוש קבוצות בלתי-תלויות בגדלים 3, 4, 5 מודגשות בצבעים שונים, ממחישות שהדרגה הנמוכה מנבאת השתייכות ל-MIS.",
+    n: 12,
+    category: "kingsLattice",
+    paperRef: "Karni 2026, Fig 1(a)",
+    build: buildKarniFig1aExample,
+  },
+  {
+    id: "karni-fig2a",
+    name: "Karni Fig 2(a) — trap-state demo",
+    englishName: "Karni 2026 Fig 2(a) IS partition",
+    description:
+      "9 קודקודים על King's subgraph אסימטרי. במאמר מוצגים שלושה פאנלים של אותו גרף עם שלוש קבוצות בלתי-תלויות מודגשות: MIS (גודל 5, אדום), Connected-IS (גודל 4, ירוק — תת-קבוצה של MIS כלשהו) ו-Disconnected-IS (גודל 4, צהוב — לא מוכל באף MIS). ה-disconnected-ISs הם 'מצבי המלכודת' ש-LD-AQC מעניש אנרגטית. הבסיס הפדגוגי להסבר השיפור.",
+    n: 9,
+    category: "kingsLattice",
+    paperRef: "Karni 2026, Fig 2(a)",
+    build: buildKarniFig2aExample,
   },
   {
     id: "bernien-chain-9",

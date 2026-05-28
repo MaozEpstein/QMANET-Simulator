@@ -43,7 +43,20 @@ def test_build_with_paper_preset_returns_full_schedule_shape():
     body = r.json()
     assert set(body.keys()) == {"schedule", "violations", "max_omega_slew_rate"}
     s = body["schedule"]
-    assert set(s.keys()) == {"omega", "delta", "phi", "duration"}
+    assert set(s.keys()) == {
+        "omega",
+        "delta",
+        "phi",
+        "duration",
+        "mode",
+        "profile",
+        "ld_aqc_strength_a",
+        "atom_degrees",
+    }
+    # LD-AQC defaults — backwards-compatible: mode "global" means the
+    # schedule behaves identically to before this change.
+    assert s["mode"] == "global"
+    assert s["atom_degrees"] == []
     assert s["duration"] == 4.0
     # Ω plateaus at 15
     assert max(s["omega"]["values"]) == 15.0

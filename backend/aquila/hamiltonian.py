@@ -63,12 +63,17 @@ def rydberg_hamiltonian(
     positions: list[tuple[float, float]],
     *,
     c6: float = C6_RAD_US_UM6,
+    delta_per_atom: list[float] | None = None,
 ) -> np.ndarray:
     """
     Build H at a single instant given the four control parameters + positions.
 
     Returns a (2^N, 2^N) complex Hermitian matrix in the computational basis
     where bit i is 1 ⇔ atom i is in |r>.
+
+    When ``delta_per_atom`` is provided, the scalar ``delta`` is ignored and
+    each atom i receives its own detuning ``delta_per_atom[i]`` — this is the
+    LD-AQC mode of Karni 2026 where Δ_i(t) ∝ f_i(d_i, a).
     """
     n = len(positions)
     if n == 0:
@@ -85,9 +90,17 @@ def rydberg_hamiltonian(
         H += half_omega * e_plus * _local_op(_SIGMA_GR, i, n)
         H += half_omega * e_minus * _local_op(_SIGMA_RG, i, n)
 
-    # Detuning term: -Δ Σ_i n̂_i
-    for i in range(n):
-        H -= delta * _local_op(_N_OP, i, n)
+    # Detuning term: -Σ_i Δ_i n̂_i  (LD-AQC) or -Δ Σ_i n̂_i  (global)
+    if delta_per_atom is not None:
+        if len(delta_per_atom) != n:
+            raise ValueError(
+                f"delta_per_atom length {len(delta_per_atom)} != n_atoms {n}"
+            )
+        for i in range(n):
+            H -= delta_per_atom[i] * _local_op(_N_OP, i, n)
+    else:
+        for i in range(n):
+            H -= delta * _local_op(_N_OP, i, n)
 
     # Van der Waals interaction
     for i in range(n):
@@ -111,6 +124,7 @@ def rydberg_hamiltonian_sparse(
     positions: list[tuple[float, float]],
     *,
     c6: float = C6_RAD_US_UM6,
+    delta_per_atom: list[float] | None = None,
 ) -> sp.csr_matrix:
     """
     Sparse CSR form of :func:`rydberg_hamiltonian` — same physics, same units.
@@ -141,7 +155,16 @@ def rydberg_hamiltonian_sparse(
 
     # Diagonal: detuning + Rydberg-Rydberg interaction
     diag = np.zeros(dim, dtype=complex)
-    diag -= delta * bits.sum(axis=0)
+    if delta_per_atom is not None:
+        if len(delta_per_atom) != n:
+            raise ValueError(
+                f"delta_per_atom length {len(delta_per_atom)} != n_atoms {n}"
+            )
+        # bits has shape (n, dim); contract over the atom axis with per-atom weights.
+        deltas = np.asarray(delta_per_atom, dtype=complex).reshape(n, 1)
+        diag -= (deltas * bits).sum(axis=0)
+    else:
+        diag -= delta * bits.sum(axis=0)
     for i in range(n):
         xi, yi = positions[i]
         for j in range(i + 1, n):

@@ -29,7 +29,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .clique_to_mis import Graph, compute_target_mis_size
+from .clique_to_mis import (
+    EXACT_MIS_MAX_NODES,
+    Graph,
+    all_independent_sets_of_size,
+    all_max_cliques,
+    complement,
+    compute_target_mis_size,
+)
+from .schedule import profile_value
 
 
 def _adjacency_sets(graph: Graph) -> list[set[int]]:
@@ -183,9 +191,104 @@ def postprocess_many(
     ]
 
 
+def compute_hp_ld(
+    graph: Graph,
+    *,
+    mode: str = "global",
+    profile: str = "power",
+    a: float = 0.4,
+    atom_degrees: list[int] | None = None,
+) -> dict | None:
+    """Generalised Hardness Parameter from Karni 2026, eq. 8.
+
+    HP_LD = Σ_j w_j / Σ_j w_j · c_j
+
+    where the sum runs over independent sets of size |MIS|-1, c_j counts the
+    distinct extensions to a MIS by adding one vertex, and the weights w_j =
+    1/|E_j - E_MIS| measure how close each (|MIS|-1)-IS sits to the MIS
+    manifold in energy. Under the LD-AQC schedule the per-IS energy uses the
+    profile-weighted detuning E_j = -Σ_{i ∈ IS_j} f_i(d_i, a); for global
+    mode every f_i = 1 and HP_LD collapses to the traditional Karni HP
+    (eq. 7) — equality is proven in Karni SM A.iii.
+
+    Returns ``None`` when the graph is too big to enumerate exactly (the
+    same EXACT_MIS_MAX_NODES cap that applies to MIS), or when |MIS| ≤ 1
+    (no non-trivial (|MIS|-1) manifold to weight).
+
+    The return dict carries 4 fields:
+      hp_trad — degeneracy-based hardness (Karni eq. 7)
+      hp_ld   — generalised, energy-weighted (Karni eq. 8)
+      n_connected_is — # ISs of size |MIS|-1 contained in some MIS
+      n_disconnected_is — # ISs not contained in any MIS (trap states)
+    """
+    if graph.n_nodes == 0 or graph.n_nodes > EXACT_MIS_MAX_NODES:
+        return None
+    # MIS group: maximum cliques in complement = MIS of G.
+    cbar = complement(graph)
+    miss, _ = all_max_cliques(cbar)
+    if not miss:
+        return None
+    mis_size = len(miss[0])
+    if mis_size <= 1:
+        return None
+    km1 = mis_size - 1
+    is_km1 = all_independent_sets_of_size(graph, km1)
+    if not is_km1:
+        return None
+
+    mis_sets = [frozenset(m) for m in miss]
+    # c_j: number of MISs that contain IS_j as a subset.
+    cjs = [sum(1 for m in mis_sets if is_j <= m) for is_j in is_km1]
+
+    # Energies for the LD-AQC weighting. We work in units where δ_0 = 1
+    # because the weights w_j ∝ 1/|E_j − E_MIS| are scale-invariant in δ_0.
+    if mode == "ld_aqc" and atom_degrees is not None and len(atom_degrees) == graph.n_nodes:
+        f_per_atom = [profile_value(profile, d, a) for d in atom_degrees]
+    else:
+        f_per_atom = [1.0] * graph.n_nodes
+
+    def is_energy(s: set[int] | frozenset[int]) -> float:
+        return -float(sum(f_per_atom[i] for i in s))
+
+    e_mis = max(is_energy(m) for m in mis_sets)  # least-negative MIS energy
+    energies = [is_energy(s) for s in is_km1]
+    # Avoid divide-by-zero on a degenerate manifold (mode=global, f=1):
+    # every |E_j − E_MIS| equals |f_added| = 1, so we can short-circuit to
+    # the traditional definition rather than divide by epsilon.
+    diffs = [abs(e_j - e_mis) for e_j in energies]
+    if mode != "ld_aqc" or all(d == 0.0 for d in diffs):
+        weights = [1.0] * len(is_km1)
+    else:
+        weights = [1.0 / d if d > 1e-12 else 0.0 for d in diffs]
+
+    num = sum(weights)
+    den = sum(w * c for w, c in zip(weights, cjs))
+    hp_ld = (num / den) if den > 0 else float("inf")
+
+    # Traditional HP_trad (Karni eq. 7): |IS_{|MIS|-1}| / (|MIS| · |MIS-group|).
+    hp_trad = len(is_km1) / (mis_size * len(mis_sets)) if mis_sets else float("inf")
+
+    n_connected = sum(1 for c in cjs if c > 0)
+    n_disconnected = sum(1 for c in cjs if c == 0)
+
+    return {
+        "hp_trad": hp_trad,
+        "hp_ld": hp_ld,
+        "n_connected_is": n_connected,
+        "n_disconnected_is": n_disconnected,
+        "n_mis": len(mis_sets),
+        "mis_size": mis_size,
+    }
+
+
 def summarize_postprocess(
     results: list[PostProcessResult],
     graph: Graph | None = None,
+    *,
+    schedule_mode: str = "global",
+    profile: str = "power",
+    ld_aqc_strength_a: float = 0.4,
+    atom_degrees: list[int] | None = None,
 ) -> dict:
     """Aggregate stats across many shots.
 
@@ -205,6 +308,10 @@ def summarize_postprocess(
             "target_mis_size": None,
             "mean_r_ratio": None,
             "best_r_ratio": None,
+            "hp_trad": None,
+            "hp_ld": None,
+            "hp_n_connected_is": None,
+            "hp_n_disconnected_is": None,
         }
     raw_sizes = np.array([r.raw_size for r in results])
     fixed_sizes = np.array([r.after_fix_size for r in results])
@@ -216,6 +323,17 @@ def summarize_postprocess(
     else:
         mean_r = float(final_sizes.mean()) / target_size
         best_r = float(final_sizes.max()) / target_size
+    hp_info = (
+        compute_hp_ld(
+            graph,
+            mode=schedule_mode,
+            profile=profile,
+            a=ld_aqc_strength_a,
+            atom_degrees=atom_degrees,
+        )
+        if graph is not None
+        else None
+    )
     return {
         "n_shots": len(results),
         "mean_raw_size": float(raw_sizes.mean()),
@@ -225,4 +343,8 @@ def summarize_postprocess(
         "target_mis_size": target_size,
         "mean_r_ratio": mean_r,
         "best_r_ratio": best_r,
+        "hp_trad": hp_info["hp_trad"] if hp_info else None,
+        "hp_ld": hp_info["hp_ld"] if hp_info else None,
+        "hp_n_connected_is": hp_info["n_connected_is"] if hp_info else None,
+        "hp_n_disconnected_is": hp_info["n_disconnected_is"] if hp_info else None,
     }

@@ -24,6 +24,7 @@ from aquila.hamiltonian import (
     blockade_pair_eigenvalues,
     is_hermitian,
     rydberg_hamiltonian,
+    rydberg_hamiltonian_sparse,
 )
 
 # --------------------------------------------------------------------------- #
@@ -181,3 +182,61 @@ def test_check_aquila_compatible_raises_on_overshoot():
         _check_aquila_compatible(omega=0.0, delta=200.0)
     # In-range: no raise
     _check_aquila_compatible(omega=10.0, delta=5.0)
+
+
+# --------------------------------------------------------------------------- #
+# LD-AQC per-atom detuning (Karni 2026)
+# --------------------------------------------------------------------------- #
+
+
+def test_delta_per_atom_uniform_matches_scalar_delta():
+    """When every atom has the same Δ_i, the per-atom Hamiltonian must equal
+    the scalar-Δ one. Sanity guard for the new code path."""
+    positions = [(0.0, 0.0), (8.0, 0.0), (4.0, 6.0)]
+    H_scalar = rydberg_hamiltonian(omega=5.0, delta=2.5, phi=0.0, positions=positions)
+    H_per_atom = rydberg_hamiltonian(
+        omega=5.0,
+        delta=999.0,  # ignored when delta_per_atom is provided
+        phi=0.0,
+        positions=positions,
+        delta_per_atom=[2.5, 2.5, 2.5],
+    )
+    assert np.allclose(H_scalar, H_per_atom, atol=1e-12)
+
+
+def test_delta_per_atom_nonuniform_differs_predictably():
+    """For atom 0 with Δ_0=4 and atoms 1,2 with Δ=0, the diagonal of H should
+    pick up −4 on every basis state where bit 0 is 1 (atom 0 excited)."""
+    positions = [(0.0, 0.0), (100.0, 0.0)]  # far apart → no interaction term
+    H = rydberg_hamiltonian(
+        omega=0.0,
+        delta=0.0,
+        phi=0.0,
+        positions=positions,
+        delta_per_atom=[4.0, 0.0],
+    )
+    # MSB-first convention: |b0 b1>. Diagonal[2] = |10>, Diagonal[3] = |11>.
+    assert H[2, 2].real == pytest.approx(-4.0, abs=1e-3)
+    assert H[3, 3].real == pytest.approx(-4.0, abs=1e-3)
+    assert H[0, 0].real == pytest.approx(0.0, abs=1e-9)
+    assert H[1, 1].real == pytest.approx(0.0, abs=1e-3)
+
+
+def test_sparse_and_dense_agree_on_delta_per_atom():
+    positions = [(0.0, 0.0), (8.0, 0.0), (4.0, 6.0)]
+    deltas = [1.2, 2.3, 3.4]
+    H_dense = rydberg_hamiltonian(
+        omega=2.5, delta=0.0, phi=0.0, positions=positions, delta_per_atom=deltas
+    )
+    H_sparse = rydberg_hamiltonian_sparse(
+        omega=2.5, delta=0.0, phi=0.0, positions=positions, delta_per_atom=deltas
+    )
+    assert np.allclose(H_dense, H_sparse.toarray(), atol=1e-12)
+
+
+def test_delta_per_atom_length_mismatch_raises():
+    positions = [(0.0, 0.0), (8.0, 0.0)]
+    with pytest.raises(ValueError):
+        rydberg_hamiltonian(
+            omega=0.0, delta=0.0, phi=0.0, positions=positions, delta_per_atom=[1.0]
+        )

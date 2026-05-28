@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -123,6 +125,13 @@ class ScheduleDTO(BaseModel):
     delta: PiecewiseLinearDTO
     phi: PiecewiseLinearDTO
     duration: float
+    # LD-AQC mode (Karni 2026). When ``mode="global"`` Δ(t) is broadcast to
+    # every atom. When ``mode="ld_aqc"``, Δ_i(t) = f_i(d_i, a) · Δ(t) where
+    # f_i is one of three monotone profiles and d_i is the vertex degree.
+    mode: Literal["global", "ld_aqc"] = "global"
+    profile: Literal["linear", "exp", "power"] = "power"
+    ld_aqc_strength_a: float = 0.4
+    atom_degrees: list[int] = Field(default_factory=list)
 
 
 class ScheduleRequest(BaseModel):
@@ -137,6 +146,14 @@ class ScheduleRequest(BaseModel):
     omega_breakpoints: list[tuple[float, float]] | None = None
     delta_breakpoints: list[tuple[float, float]] | None = None
     phi_breakpoints: list[tuple[float, float]] | None = None
+
+    # LD-AQC mode (Karni 2026). Forwarded into the resulting ScheduleDTO so
+    # downstream calls (spectrum, gap, simulate) carry the per-atom detuning
+    # configuration without an extra request shape change.
+    mode: Literal["global", "ld_aqc"] = "global"
+    profile: Literal["linear", "exp", "power"] = "power"
+    ld_aqc_strength_a: float = 0.4
+    atom_degrees: list[int] = Field(default_factory=list)
 
 
 class ScheduleResponse(BaseModel):
@@ -332,6 +349,12 @@ class PostProcessBatchRequest(BaseModel):
     bitstrings: list[str]
     target_graph: GraphDTO
     seed: int | None = 0
+    # LD-AQC fields, optional. When omitted the HP_LD computation collapses
+    # to the traditional (degeneracy-only) HP — useful for global-mode runs.
+    mode: Literal["global", "ld_aqc"] = "global"
+    profile: Literal["linear", "exp", "power"] = "power"
+    ld_aqc_strength_a: float = 0.4
+    atom_degrees: list[int] = Field(default_factory=list)
 
 
 class PostProcessBatchResponse(BaseModel):

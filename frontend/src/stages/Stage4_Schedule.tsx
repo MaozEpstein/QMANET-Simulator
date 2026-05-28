@@ -4,10 +4,13 @@ import { motion } from "framer-motion";
 import { api } from "../api/rest";
 import type {
   GapTraceDTO,
+  LDMode,
+  LDProfile,
   PhaseDiagramDTO,
   ScheduleResponse,
   SpectrumTraceDTO,
 } from "../api/rest";
+import { computeDegrees } from "../lib/graphMetrics";
 import { ConstraintBadge, ConstraintSummary } from "../components/ConstraintBadge";
 import { HamiltonianTeX } from "../components/HamiltonianTeX";
 import { HamiltonianReflectionModal } from "../components/HamiltonianReflectionModal";
@@ -52,6 +55,8 @@ export function Stage4_Schedule() {
   // they survive a tab switch — see `scheduleAnalysis` in store/pipeline.ts.
   // Local UI-only state (loading flags, slider params) stays here.
   const {
+    manet,
+    mis,
     embed,
     schedule,
     setSchedule,
@@ -64,6 +69,13 @@ export function Stage4_Schedule() {
     scheduleAnalysis;
   const [params, setParams] = useState<PaperPresetParams>(DEFAULT_PARAMS);
   const [preset, setPreset] = useState<PresetName>("paper_linear_ramp");
+  // LD-AQC controls (Karni 2026). When ldMode == "ld_aqc", every api.schedule()
+  // call attaches mode/profile/a/atom_degrees so the resulting Schedule has
+  // per-atom detuning. The Hamiltonian builder (Stage 5) picks this up
+  // transparently because the ScheduleDTO already carries it.
+  const [ldMode, setLdMode] = useState<LDMode>("global");
+  const [ldProfile, setLdProfile] = useState<LDProfile>("power");
+  const [ldA, setLdA] = useState<number>(0.4);
   const [cursorT, setCursorT] = useState<number>(2.0);
   const [isPlaying, setIsPlaying] = useState(false);
   // Real-time seconds per simulated µs. 1 ⇒ 1 µs takes 1 wall-clock second.
@@ -90,6 +102,27 @@ export function Stage4_Schedule() {
     chosenIdx: number;
   } | null>(null);
 
+  // Pre-compute degrees from the COMPLEMENT graph Ḡ — that's the graph the
+  // AQC actually solves MIS on (Stage 3 embeds Ḡ on the lattice). Each
+  // physical atom i represents vertex i of Ḡ and its LD-AQC profile weight
+  // is f_i(d_i^Ḡ, a). Empty list when MIS hasn't been computed yet — backend
+  // treats that as fall-back to global mode automatically.
+  const atomDegrees =
+    mis?.complement
+      ? computeDegrees(mis.complement.n_nodes, mis.complement.edges)
+      : manet
+        ? computeDegrees(manet.graph.n_nodes, manet.graph.edges)
+        : [];
+  const ldExtras =
+    ldMode === "ld_aqc"
+      ? {
+          mode: "ld_aqc" as const,
+          profile: ldProfile,
+          ld_aqc_strength_a: ldA,
+          atom_degrees: atomDegrees,
+        }
+      : { mode: "global" as const };
+
   const run = useCallback(async () => {
     setLoading(true);
     setErr(null);
@@ -97,6 +130,7 @@ export function Stage4_Schedule() {
       const res = await api.schedule({
         preset,
         preset_params: { ...params },
+        ...ldExtras,
       });
       // setSchedule resets scheduleAnalysis internally — see store/pipeline.ts.
       setSchedule(res);
@@ -105,7 +139,7 @@ export function Stage4_Schedule() {
     } finally {
       setLoading(false);
     }
-  }, [params, preset, setSchedule]);
+  }, [params, preset, setSchedule, ldMode, ldProfile, ldA, atomDegrees]);
 
   const runGapAnalysis = useCallback(async () => {
     if (!schedule || !embed) return;
@@ -239,6 +273,7 @@ export function Stage4_Schedule() {
         const sched = await api.schedule({
           preset,
           preset_params: { ...candidates[i] },
+          ...ldExtras,
         });
         const gapRes = await api.scheduleGap({
           positions: embed.positions,
@@ -276,6 +311,7 @@ export function Stage4_Schedule() {
       const finalSched = await api.schedule({
         preset,
         preset_params: { ...chosen },
+        ...ldExtras,
       });
       setSchedule(finalSched);
       const finalGap = await api.scheduleGap({
@@ -296,7 +332,7 @@ export function Stage4_Schedule() {
       setAutoTuning(false);
       setAutoTuneProgress(null);
     }
-  }, [embed, params, preset, setSchedule, setGap]);
+  }, [embed, params, preset, setSchedule, setGap, ldMode, ldProfile, ldA, atomDegrees]);
 
   // Cursor animation loop — drives cursorT from its current value forward at
   // playSpeed µs/s (real time), looping back to 0 when it hits the schedule
@@ -437,6 +473,15 @@ export function Stage4_Schedule() {
               max={120}
               step={1}
               unit="rad/µs"
+            />
+            <LDAQCControls
+              ldMode={ldMode}
+              setLdMode={setLdMode}
+              ldProfile={ldProfile}
+              setLdProfile={setLdProfile}
+              ldA={ldA}
+              setLdA={setLdA}
+              atomDegrees={atomDegrees}
             />
             <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
               <button
@@ -1427,5 +1472,200 @@ function Stat({
         {value}
       </div>
     </div>
+  );
+}
+
+// =============================================================================
+// LD-AQC controls — Karni 2026
+// =============================================================================
+//
+// "Local-Drive AQC" replaces the global detuning Δ(t) with a per-atom curve
+// Δ_i(t) = f_i(d_i, a) · Δ(t), where f_i is one of three monotone profiles
+// over the vertex degree d_i. Low-degree atoms get a steeper slope (since the
+// MIS prefers low-degree vertices), accelerating convergence to the target
+// state. See Karni 2026, eq. 6 + Fig 4.
+
+const PROFILE_OPTIONS: { id: LDProfile; label: string; hint: string }[] = [
+  {
+    id: "power",
+    label: "Power-law (אופטימלי)",
+    hint: "f_i(a) = (1 + d_i)^(-a). הכי טוב לפי Karni Fig 4(c).",
+  },
+  {
+    id: "exp",
+    label: "Exponential",
+    hint: "f_i(a) = exp(-d_i · a). דועך מהר עם הדרגה.",
+  },
+  {
+    id: "linear",
+    label: "Linear",
+    hint: "f_i(a) = max(0, 1 - d_i · a). נחתך לאפס כשהדרגה גבוהה מדי.",
+  },
+];
+
+function profileValue(profile: LDProfile, degree: number, a: number): number {
+  if (profile === "linear") return Math.max(0, 1 - degree * a);
+  if (profile === "exp") return Math.exp(-degree * a);
+  return Math.pow(1 + degree, -a); // power
+}
+
+function LDAQCControls({
+  ldMode,
+  setLdMode,
+  ldProfile,
+  setLdProfile,
+  ldA,
+  setLdA,
+  atomDegrees,
+}: {
+  ldMode: LDMode;
+  setLdMode: (v: LDMode) => void;
+  ldProfile: LDProfile;
+  setLdProfile: (v: LDProfile) => void;
+  ldA: number;
+  setLdA: (v: number) => void;
+  atomDegrees: number[];
+}) {
+  const uniqueDegrees = Array.from(new Set(atomDegrees)).sort((a, b) => a - b);
+  const minDeg = uniqueDegrees[0] ?? 0;
+  const maxDeg = uniqueDegrees[uniqueDegrees.length - 1] ?? 0;
+
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        padding: "10px 12px",
+        background: palette.bgInset,
+        border: `1px solid ${palette.queraPurpleSoft}`,
+        borderRadius: 8,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          color: palette.queraPurpleGlow,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        מצב AQC
+        <span style={{ fontWeight: 400, color: palette.textMuted }}>
+          (Karni 2026)
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <ModeButton
+          active={ldMode === "global"}
+          onClick={() => setLdMode("global")}
+          title="Δ(t) אחיד לכל האטומים — AQC קלאסי"
+        >
+          Global
+        </ModeButton>
+        <ModeButton
+          active={ldMode === "ld_aqc"}
+          onClick={() => setLdMode("ld_aqc")}
+          title="Δ_i(t) = f_i(d_i, a) · Δ(t). אטומים בעלי דרגה נמוכה מקבלים שיפוע גדול יותר."
+        >
+          LD-AQC
+        </ModeButton>
+      </div>
+
+      {ldMode === "ld_aqc" && (
+        <>
+          <label
+            style={{
+              fontSize: 11,
+              color: palette.textSecondary,
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+            }}
+          >
+            פרופיל f_i(a)
+            <select
+              value={ldProfile}
+              onChange={(e) => setLdProfile(e.target.value as LDProfile)}
+              style={{
+                padding: "5px 8px",
+                background: palette.bgPanel,
+                color: palette.textPrimary,
+                border: `1px solid ${palette.queraPurpleSoft}`,
+                borderRadius: 6,
+                fontSize: 12,
+              }}
+            >
+              {PROFILE_OPTIONS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <span style={{ fontSize: 10.5, color: palette.textMuted }}>
+              {PROFILE_OPTIONS.find((p) => p.id === ldProfile)?.hint}
+            </span>
+          </label>
+          <Slider
+            label="a (חוזק LD)"
+            value={ldA}
+            onChange={setLdA}
+            min={0.05}
+            max={1.0}
+            step={0.05}
+            unit=""
+          />
+          {atomDegrees.length > 0 && (
+            <div
+              style={{
+                fontSize: 10.5,
+                color: palette.textMuted,
+                lineHeight: 1.6,
+              }}
+              dir="ltr"
+            >
+              degrees ∈ [{minDeg}, {maxDeg}] · f({minDeg})=
+              {profileValue(ldProfile, minDeg, ldA).toFixed(3)} · f({maxDeg})=
+              {profileValue(ldProfile, maxDeg, ldA).toFixed(3)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  title,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        flex: 1,
+        padding: "6px 10px",
+        fontSize: 12,
+        fontWeight: 600,
+        border: `1px solid ${active ? palette.queraPurpleGlow : palette.queraPurpleSoft}`,
+        background: active ? palette.queraPurple : "transparent",
+        color: active ? "#fff" : palette.textSecondary,
+        borderRadius: 6,
+        cursor: "pointer",
+      }}
+    >
+      {children}
+    </button>
   );
 }

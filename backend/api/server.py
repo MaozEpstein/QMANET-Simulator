@@ -285,6 +285,10 @@ def _schedule_to_dto(s: Schedule) -> ScheduleDTO:
         delta=PiecewiseLinearDTO(**s.delta.to_dict()),
         phi=PiecewiseLinearDTO(**s.phi.to_dict()),
         duration=s.duration,
+        mode=s.mode,
+        profile=s.profile,
+        ld_aqc_strength_a=s.ld_aqc_strength_a,
+        atom_degrees=list(s.atom_degrees),
     )
 
 
@@ -321,6 +325,19 @@ def build_schedule(req: ScheduleRequest) -> ScheduleResponse:
             )
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e)) from e
+
+    # Layer LD-AQC config from the request onto the resulting schedule.
+    # The preset only builds the global Δ(t) curve; per-atom weighting is
+    # an orthogonal concern that all preset families inherit for free.
+    from dataclasses import replace as _dc_replace
+
+    schedule = _dc_replace(
+        schedule,
+        mode=req.mode,
+        profile=req.profile,
+        ld_aqc_strength_a=req.ld_aqc_strength_a,
+        atom_degrees=tuple(req.atom_degrees),
+    )
 
     violations = validate_schedule(schedule)
     return ScheduleResponse(
@@ -412,6 +429,10 @@ def _schedule_from_dto(s: ScheduleDTO) -> Schedule:
         omega=PiecewiseLinear.from_lists(s.omega.times, s.omega.values),
         delta=PiecewiseLinear.from_lists(s.delta.times, s.delta.values),
         phi=PiecewiseLinear.from_lists(s.phi.times, s.phi.values),
+        mode=s.mode,
+        profile=s.profile,
+        ld_aqc_strength_a=s.ld_aqc_strength_a,
+        atom_degrees=tuple(s.atom_degrees),
     )
 
 
@@ -486,6 +507,10 @@ def _rescale_schedule_to_duration(s: ScheduleDTO, target_us: float) -> Schedule:
         omega=PiecewiseLinear.from_lists([t * scale for t in s.omega.times], list(s.omega.values)),
         delta=PiecewiseLinear.from_lists([t * scale for t in s.delta.times], list(s.delta.values)),
         phi=PiecewiseLinear.from_lists([t * scale for t in s.phi.times], list(s.phi.values)),
+        mode=s.mode,
+        profile=s.profile,
+        ld_aqc_strength_a=s.ld_aqc_strength_a,
+        atom_degrees=tuple(s.atom_degrees),
     )
 
 
@@ -583,7 +608,14 @@ def postprocess_batch(req: PostProcessBatchRequest) -> PostProcessBatchResponse:
                 detail=f"bitstring length {len(b)} != n_nodes {g.n_nodes}",
             )
     results = postprocess_many(req.bitstrings, g, seed=req.seed)
-    summary = summarize_postprocess(results, graph=g)
+    summary = summarize_postprocess(
+        results,
+        graph=g,
+        schedule_mode=req.mode,
+        profile=req.profile,
+        ld_aqc_strength_a=req.ld_aqc_strength_a,
+        atom_degrees=list(req.atom_degrees) if req.atom_degrees else None,
+    )
     target_size = summary["target_mis_size"]
 
     def _result_dto(r) -> PostProcessResultDTO:

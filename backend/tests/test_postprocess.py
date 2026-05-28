@@ -254,3 +254,75 @@ def test_summarize_returns_means_and_best():
 def test_summarize_empty_list():
     summary = summarize_postprocess([])
     assert summary["n_shots"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# HP_LD — Karni 2026 generalised hardness parameter
+# --------------------------------------------------------------------------- #
+
+
+def test_hp_ld_global_mode_matches_traditional_hp():
+    """In global mode (every f_i = 1) HP_LD must collapse to HP_trad — proven
+    in Karni 2026 SM A.iii. Verify on a small ring C_5 where both quantities
+    are easy to enumerate by hand."""
+    from pipeline.clique_to_mis import Graph
+    from pipeline.postprocess import compute_hp_ld
+
+    # C_5: 5 nodes, edges 0-1, 1-2, 2-3, 3-4, 4-0. MIS size = 2, # MISs = 5
+    # (every non-adjacent pair). ISs of size 1 = 5 (every singleton). Every
+    # singleton is contained in some MIS (c_j ≥ 1), so HP_trad = 5/(2·5)=0.5.
+    g = Graph(n_nodes=5, edges=[(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)])
+    info = compute_hp_ld(g, mode="global")
+    assert info is not None
+    assert info["mis_size"] == 2
+    assert info["n_mis"] == 5
+    assert info["hp_trad"] == pytest.approx(0.5)
+    # In global mode HP_LD == HP_trad exactly.
+    assert info["hp_ld"] == pytest.approx(info["hp_trad"])
+
+
+def test_hp_ld_returns_none_for_empty_and_oversized():
+    from pipeline.clique_to_mis import Graph
+    from pipeline.postprocess import compute_hp_ld
+
+    assert compute_hp_ld(Graph(n_nodes=0, edges=[])) is None
+    # A path P_2 has |MIS|=1 (or |MIS|=2 for a non-edge; but P_2 has the
+    # edge so MIS={one endpoint}=1) → no (|MIS|-1)-IS manifold to score.
+    assert compute_hp_ld(Graph(n_nodes=2, edges=[(0, 1)])) is None
+
+
+def test_hp_ld_counts_connected_vs_disconnected_is():
+    """A graph where some |MIS|-1 IS cannot extend to a MIS by adding ONE
+    vertex. Constructed: two disjoint edges + an isolated vertex.
+    G: 5 nodes, edges = [(0,1), (2,3)]. MIS includes vertex 4 plus one
+    endpoint from each edge → |MIS| = 3, e.g. {0, 2, 4}. There are 4 MISs.
+    ISs of size 2: a few are subsets of MISs (connected), a few are not
+    (disconnected). We just sanity-check the counts are non-negative."""
+    from pipeline.clique_to_mis import Graph
+    from pipeline.postprocess import compute_hp_ld
+
+    g = Graph(n_nodes=5, edges=[(0, 1), (2, 3)])
+    info = compute_hp_ld(g, mode="global")
+    assert info is not None
+    assert info["mis_size"] == 3
+    assert info["n_connected_is"] >= 0
+    assert info["n_disconnected_is"] >= 0
+    assert info["n_connected_is"] + info["n_disconnected_is"] >= 1
+
+
+def test_hp_ld_diverges_from_trad_under_ld_aqc():
+    """With non-trivial profile + degree variation, HP_LD ≠ HP_trad."""
+    from pipeline.clique_to_mis import Graph
+    from pipeline.postprocess import compute_hp_ld
+
+    # Path P_4: degrees [1, 2, 2, 1]. |MIS|=2 (e.g. {0,2} or {0,3} or {1,3}).
+    g = Graph(n_nodes=4, edges=[(0, 1), (1, 2), (2, 3)])
+    glob = compute_hp_ld(g, mode="global")
+    ld = compute_hp_ld(
+        g, mode="ld_aqc", profile="power", a=0.6, atom_degrees=[1, 2, 2, 1]
+    )
+    assert glob is not None and ld is not None
+    # Both should be finite and positive.
+    assert ld["hp_ld"] > 0
+    # And they should generally differ (the profile breaks the degeneracy).
+    assert ld["hp_ld"] != glob["hp_ld"]

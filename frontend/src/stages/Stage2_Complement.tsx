@@ -33,6 +33,7 @@ export function Stage2_Complement() {
   //   - n_max_cliques  > 1 → ON also exposes the cycler so the user can step
   //     through alternative optima with the distinct color palette.
   const [showHighlight, setShowHighlight] = useState(true);
+  const [showDegrees, setShowDegrees] = useState(false);
 
   const computeComplement = useCallback(async () => {
     if (!manet) return;
@@ -278,6 +279,12 @@ export function Stage2_Complement() {
             checked={showHighlight}
             onChange={setShowHighlight}
           />
+          <SwitchToggle
+            label="הצג דרגה (d_i)"
+            hint="מציג ליד כל קודקוד את דרגתו בגרף שאותו צד מציג: ב-G לפי קשתות G, ב-Ḡ לפי קשתות Ḡ. ה-d_i של Ḡ הוא זה שמכתיב את LD-AQC כי ה-AQC פותר MIS על Ḡ (Karni 2026, Fig 1a)."
+            checked={showDegrees}
+            onChange={setShowDegrees}
+          />
           {showHighlight && hasAlternatives && (
             <>
               <div
@@ -361,6 +368,7 @@ export function Stage2_Complement() {
               height={500}
               selectedNode={selectedNode}
               onNodeClick={handleNodeClick}
+              showDegrees={showDegrees}
             />
           </div>
 
@@ -402,6 +410,7 @@ export function Stage2_Complement() {
                 height={500}
                 selectedNode={selectedNode}
                 onNodeClick={handleNodeClick}
+                showDegrees={showDegrees}
               />
             )}
           </div>

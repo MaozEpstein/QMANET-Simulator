@@ -108,6 +108,36 @@ export function buildSquareGrid(k: number): PresetResult {
   return { positions, edges };
 }
 
+export function buildKingsGrid(k: number): PresetResult {
+  const span = 100 - 2 * MARGIN;
+  const step = k > 1 ? span / (k - 1) : 0;
+  const xOffset = (BOX_W - 100) / 2 + MARGIN;
+  const yOffset = MARGIN;
+  const positions: NodePos[] = [];
+  for (let row = 0; row < k; row++) {
+    for (let col = 0; col < k; col++) {
+      positions.push({
+        id: row * k + col,
+        x: xOffset + col * step,
+        y: yOffset + row * step,
+      });
+    }
+  }
+  const edges: [number, number][] = [];
+  for (let row = 0; row < k; row++) {
+    for (let col = 0; col < k; col++) {
+      const id = row * k + col;
+      if (col < k - 1) edges.push([id, id + 1]);
+      if (row < k - 1) {
+        edges.push([id, id + k]);
+        if (col < k - 1) edges.push([id, id + k + 1]);
+        if (col > 0) edges.push([id, id + k - 1]);
+      }
+    }
+  }
+  return { positions, edges };
+}
+
 export function buildTriangularGrid(rows: number): PresetResult {
   const span = 100 - 2 * MARGIN;
   const cols = rows;
@@ -192,7 +222,7 @@ export const PRESETS: PresetSpec[] = [
     description: "N קודקודים על מעגל, מחוברים לשכנים הסמוכים.",
     paramLabel: "N",
     paramMin: 3,
-    paramMax: 30,
+    paramMax: 50,
     paramDefault: 8,
     build: buildRing,
   },
@@ -202,7 +232,7 @@ export const PRESETS: PresetSpec[] = [
     description: "טבעת חיצונית + מרכז עם חישורים לכל הקודקודים.",
     paramLabel: "חיצוניים",
     paramMin: 3,
-    paramMax: 24,
+    paramMax: 50,
     paramDefault: 8,
     build: buildWheel,
   },
@@ -212,7 +242,7 @@ export const PRESETS: PresetSpec[] = [
     description: "מרכז יחיד עם N עלים סביבו.",
     paramLabel: "עלים",
     paramMin: 2,
-    paramMax: 20,
+    paramMax: 50,
     paramDefault: 6,
     build: buildStar,
   },
@@ -222,17 +252,17 @@ export const PRESETS: PresetSpec[] = [
     description: "N קודקודים בשורה, מחוברים סדרתית.",
     paramLabel: "N",
     paramMin: 2,
-    paramMax: 25,
+    paramMax: 50,
     paramDefault: 6,
     build: buildPath,
   },
   {
     id: "complete",
     name: "מלא (K_n)",
-    description: "כל זוג קודקודים מחובר. גדל מהר — שמור על N קטן.",
+    description: "כל זוג קודקודים מחובר. צפיפות הקשתות גדלה ריבועית — N גבוה יוצר גרף קשת-עתיר במיוחד.",
     paramLabel: "N",
     paramMin: 3,
-    paramMax: 12,
+    paramMax: 30,
     paramDefault: 5,
     build: buildComplete,
   },
@@ -242,9 +272,19 @@ export const PRESETS: PresetSpec[] = [
     description: "k×k קודקודים עם קשתות לשכנים בשורה/עמודה.",
     paramLabel: "k",
     paramMin: 2,
-    paramMax: 6,
+    paramMax: 20,
     paramDefault: 4,
     build: buildSquareGrid,
+  },
+  {
+    id: "kings",
+    name: "King's k×k",
+    description: "רשת k×k עם קשתות בין שכנים במהלך מלך (8 כיוונים) — הטופולוגיה הקנונית של Rydberg-MIS. ⚠ k≥4 → Stages 4/5 יסרבו (Hilbert space ענק); Stages 1-3 + 8 עובדים עד k=20.",
+    paramLabel: "k",
+    paramMin: 2,
+    paramMax: 20,
+    paramDefault: 3,
+    build: buildKingsGrid,
   },
   {
     id: "triangular",
@@ -252,7 +292,7 @@ export const PRESETS: PresetSpec[] = [
     description: "סריג משולשי — כל קודקוד עם עד 6 שכנים.",
     paramLabel: "שורות",
     paramMin: 2,
-    paramMax: 6,
+    paramMax: 20,
     paramDefault: 4,
     build: buildTriangularGrid,
   },
@@ -262,7 +302,7 @@ export const PRESETS: PresetSpec[] = [
     description: "טבעות משושיות קונצנטריות סביב מרכז.",
     paramLabel: "טבעות",
     paramMin: 1,
-    paramMax: 3,
+    paramMax: 8,
     paramDefault: 1,
     build: buildHexagonalFlower,
   },

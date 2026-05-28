@@ -91,10 +91,29 @@ class Schedule:
     omega: PiecewiseLinear
     delta: PiecewiseLinear
     phi: PiecewiseLinear
+    # LD-AQC fields (Karni 2026). When ``mode == "global"`` the schedule is
+    # the textbook homogeneous AQC: every atom sees the same Δ(t). When
+    # ``mode == "ld_aqc"``, Δ_i(t) = profile(d_i, a) · Δ(t), where d_i is
+    # the vertex degree and the profile is one of "linear", "exp", "power".
+    mode: str = "global"
+    profile: str = "power"
+    ld_aqc_strength_a: float = 0.4
+    atom_degrees: tuple[int, ...] = ()
 
     @property
     def duration(self) -> float:
         return max(self.omega.duration, self.delta.duration, self.phi.duration)
+
+    def delta_per_atom_at(self, t: float) -> list[float] | None:
+        """Return per-atom detunings at time ``t``, or ``None`` if the
+        schedule is global (caller should fall back to scalar Δ(t))."""
+        if self.mode != "ld_aqc" or not self.atom_degrees:
+            return None
+        d_global = self.delta.value_at(t)
+        return [
+            profile_value(self.profile, d_i, self.ld_aqc_strength_a) * d_global
+            for d_i in self.atom_degrees
+        ]
 
     def to_dict(self) -> dict:
         return {
@@ -102,7 +121,29 @@ class Schedule:
             "delta": self.delta.to_dict(),
             "phi": self.phi.to_dict(),
             "duration": self.duration,
+            "mode": self.mode,
+            "profile": self.profile,
+            "ld_aqc_strength_a": self.ld_aqc_strength_a,
+            "atom_degrees": list(self.atom_degrees),
         }
+
+
+def profile_value(profile: str, degree: int, a: float) -> float:
+    """LD-AQC degree-dependent scaling f_i(a). Used to weight each atom's
+    detuning Δ_i(t) = f_i(a) · Δ(t). See Karni 2026 eq. 6 + appendix C.
+
+    All three profiles are monotonically decreasing in ``degree`` so atoms
+    with fewer neighbours (more likely to belong to the MIS) get a steeper
+    slope. We clamp the linear form to [0, ∞) to avoid sign-flipped Δ_i
+    when ``degree * a > 1``.
+    """
+    if profile == "linear":
+        return max(0.0, 1.0 - degree * a)
+    if profile == "exp":
+        return math.exp(-degree * a)
+    if profile == "power":
+        return (1.0 + degree) ** (-a)
+    raise ValueError(f"Unknown LD-AQC profile: {profile!r}")
 
 
 # --------------------------------------------------------------------------- #

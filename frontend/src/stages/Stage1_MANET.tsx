@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { motion } from "framer-motion";
 import type { MANETResponse } from "../api/rest";
 import { ExportButton } from "../components/ExportButton";
@@ -18,6 +18,8 @@ export function Stage1_MANET() {
     setSchedule,
     resetSimulation,
   } = usePipeline();
+
+  const [showDegrees, setShowDegrees] = useState(false);
 
   const handleCommit = useCallback(
     (payload: MANETResponse) => {
@@ -64,6 +66,8 @@ export function Stage1_MANET() {
           externalValue={manet}
           onCommit={handleCommit}
           onSave={handleSaveToLibrary}
+          showDegrees={showDegrees}
+          onShowDegreesChange={setShowDegrees}
         />
       </Panel>
 

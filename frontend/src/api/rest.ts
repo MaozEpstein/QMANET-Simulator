@@ -123,11 +123,21 @@ export interface PiecewiseLinearDTO {
   values: number[];
 }
 
+export type LDProfile = "linear" | "exp" | "power";
+export type LDMode = "global" | "ld_aqc";
+
 export interface ScheduleDTO {
   omega: PiecewiseLinearDTO;
   delta: PiecewiseLinearDTO;
   phi: PiecewiseLinearDTO;
   duration: number;
+  /** LD-AQC fields (Karni 2026). When `mode == "global"` the schedule is the
+   * textbook AQC: Δ(t) is broadcast to every atom. When `mode == "ld_aqc"`,
+   * each atom i has Δ_i(t) = profile(d_i, a) · Δ(t). */
+  mode?: LDMode;
+  profile?: LDProfile;
+  ld_aqc_strength_a?: number;
+  atom_degrees?: number[];
 }
 
 export interface ScheduleRequest {
@@ -136,6 +146,11 @@ export interface ScheduleRequest {
   omega_breakpoints?: [number, number][];
   delta_breakpoints?: [number, number][];
   phi_breakpoints?: [number, number][];
+  /** LD-AQC config — forwarded into the resulting ScheduleDTO. */
+  mode?: LDMode;
+  profile?: LDProfile;
+  ld_aqc_strength_a?: number;
+  atom_degrees?: number[];
 }
 
 export interface ScheduleResponse {
@@ -303,6 +318,17 @@ export interface PostProcessResultDTO {
   r_ratio?: number | null;
 }
 
+export interface PostProcessBatchRequest {
+  bitstrings: string[];
+  target_graph: GraphDTO;
+  seed?: number | null;
+  /** LD-AQC config so HP_LD picks up the per-atom profile weights. */
+  mode?: LDMode;
+  profile?: LDProfile;
+  ld_aqc_strength_a?: number;
+  atom_degrees?: number[];
+}
+
 export interface PostProcessBatchResponse {
   results: PostProcessResultDTO[];
   summary: {
@@ -314,6 +340,12 @@ export interface PostProcessBatchResponse {
     target_mis_size?: number | null;
     mean_r_ratio?: number | null;
     best_r_ratio?: number | null;
+    /** Karni 2026 hardness parameters. Null when the graph is too large to
+     * enumerate all (|MIS|-1) ISs, or when |MIS| ≤ 1 (no manifold). */
+    hp_trad?: number | null;
+    hp_ld?: number | null;
+    hp_n_connected_is?: number | null;
+    hp_n_disconnected_is?: number | null;
   };
 }
 
@@ -436,11 +468,21 @@ export const api = {
       { bitstring: string; target_graph: GraphDTO; seed?: number },
       PostProcessResultDTO
     >("/api/postprocess", { bitstring, target_graph, seed }),
-  postprocessBatch: (bitstrings: string[], target_graph: GraphDTO, seed?: number) =>
-    postJSON<
-      { bitstrings: string[]; target_graph: GraphDTO; seed?: number },
-      PostProcessBatchResponse
-    >("/api/postprocess/batch", { bitstrings, target_graph, seed }),
+  postprocessBatch: (
+    bitstrings: string[],
+    target_graph: GraphDTO,
+    seed?: number,
+    ldExtras?: {
+      mode?: LDMode;
+      profile?: LDProfile;
+      ld_aqc_strength_a?: number;
+      atom_degrees?: number[];
+    },
+  ) =>
+    postJSON<PostProcessBatchRequest, PostProcessBatchResponse>(
+      "/api/postprocess/batch",
+      { bitstrings, target_graph, seed, ...(ldExtras ?? {}) },
+    ),
   classicalSA: (graph: GraphDTO, config?: Partial<SAConfigDTO>) =>
     postJSON<{ graph: GraphDTO; config?: Partial<SAConfigDTO> }, SAResponse>(
       "/api/classical/sa",

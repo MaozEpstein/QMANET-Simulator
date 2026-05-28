@@ -9,10 +9,11 @@
  * Highlighted vertices (in `highlight`) get a glowing halo + bold stroke.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as d3 from "d3";
 import { palette } from "../theme/palette";
 import type { GraphDTO } from "../api/rest";
+import { computeDegrees } from "../lib/graphMetrics";
 
 interface Props {
   graph: GraphDTO;
@@ -34,6 +35,15 @@ interface Props {
   onNodeClick?: (id: number) => void;
   /** When true, show "n=… m=… density=…" badge in the top-right. */
   showStatsBadge?: boolean;
+  /**
+   * When true, render each vertex's degree d_i as a small label above the
+   * node circle (Karni 2026 Fig 1a style). Off by default so existing call
+   * sites are unaffected. When `degreeEdges` is supplied, degree is computed
+   * from that edge list instead of `graph.edges` — useful when this view
+   * shows G̅ but we want the original G's degree shown on each atom.
+   */
+  showDegrees?: boolean;
+  degreeEdges?: readonly (readonly [number, number])[];
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -62,10 +72,16 @@ export function GraphView({
   selectedNode = null,
   onNodeClick,
   showStatsBadge = false,
+  showDegrees = false,
+  degreeEdges,
 }: Props) {
   const hiColor = highlightColor ?? palette.queraPurpleGlow;
   const svgRef = useRef<SVGSVGElement | null>(null);
   const simRef = useRef<d3.Simulation<SimNode, undefined> | null>(null);
+  const degrees = useMemo(
+    () => computeDegrees(graph.n_nodes, degreeEdges ?? graph.edges),
+    [graph.n_nodes, graph.edges, degreeEdges],
+  );
 
   useEffect(() => {
     const svg = d3.select(svgRef.current);
@@ -224,6 +240,26 @@ export function GraphView({
       .attr("fill", "#fff")
       .attr("pointer-events", "none");
 
+    if (showDegrees) {
+      // Render degree d_i above the node, in queraPurpleGlow with a subtle
+      // shadow stroke so it remains legible over both light edges and the
+      // panel background. Matches Karni 2026 Fig 1(a) where vertices are
+      // colour-coded by degree to motivate the LD-AQC schedule.
+      nodeSel
+        .append("text")
+        .text((d) => `d=${degrees[d.id] ?? 0}`)
+        .attr("text-anchor", "middle")
+        .attr("dy", -14)
+        .attr("font-size", 10)
+        .attr("font-weight", 600)
+        .attr("font-family", "JetBrains Mono, monospace")
+        .attr("fill", palette.queraPurpleGlow)
+        .attr("stroke", palette.bgInset)
+        .attr("stroke-width", 3)
+        .attr("paint-order", "stroke")
+        .attr("pointer-events", "none");
+    }
+
     // Caption
     if (caption) {
       svg
@@ -329,6 +365,8 @@ export function GraphView({
     selectedNode,
     onNodeClick,
     showStatsBadge,
+    showDegrees,
+    degrees,
   ]);
 
   return (
