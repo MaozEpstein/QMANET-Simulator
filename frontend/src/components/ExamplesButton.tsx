@@ -102,6 +102,12 @@ const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?:
     subtitle: "גרפים קטנים עם תוצאה ידועה — להבנה ראשונית של הצינור",
   },
   {
+    id: "kingsLattice",
+    title: "King's lattice — Karni & KAIST",
+    subtitle:
+      "9 גרפים על King's graph מהמאמרים החדשים: LD-AQC (Karni 2026) + dataset של 733K גרפים (KAIST 2023)",
+  },
+  {
     id: "topology",
     title: "טופולוגיות קלאסיות",
     subtitle: "משפחות גרפים שלימוד שלהן מפענח את התנהגות ה-MIS",
@@ -110,12 +116,6 @@ const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?:
     id: "paper",
     title: "רפרודוקציה ממאמרים",
     subtitle: "אותם פרמטרים כמו ב-Ebadi 2022 / Bernien 2017",
-  },
-  {
-    id: "kingsLattice",
-    title: "King's lattice — Karni & KAIST",
-    subtitle:
-      "9 גרפים על King's graph מהמאמרים החדשים: LD-AQC (Karni 2026) + dataset של 733K גרפים (KAIST 2023)",
   },
   {
     id: "chaotic",
