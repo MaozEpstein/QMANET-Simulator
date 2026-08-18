@@ -10,9 +10,9 @@ import { palette } from "../theme/palette";
 // Distinct colors per clique index — picked so cliques with overlapping
 // vertices read clearly against the dark panel background.
 const CLIQUE_PALETTE = [
+  palette.highlight, // mint — primary marking color
   palette.queraPurpleGlow,
   "#f59e0b", // amber
-  "#10b981", // emerald
   "#3b82f6", // blue
   "#ef4444", // red
   "#ec4899", // pink
@@ -109,7 +109,7 @@ export function Stage2_Complement() {
   const activeClique = cliques[activeIdx] ?? [];
   const activeColor = hasAlternatives && showHighlight
     ? CLIQUE_PALETTE[activeIdx % CLIQUE_PALETTE.length]
-    : palette.queraPurpleGlow;
+    : palette.highlight;
   // When the highlight is off, GraphView receives an empty set so nothing
   // is drawn glowing — revealing the raw graph for structural inspection.
   const cliqueSet = showHighlight ? new Set(activeClique) : new Set<number>();
@@ -274,7 +274,7 @@ export function Stage2_Complement() {
             hint={
               hasAlternatives
                 ? "הפעל כדי לעבור בין פתרונות אופטימליים בצבעים שונים"
-                : "כיבוי יציג את הגרף ללא ההדגשה הסגולה"
+                : "כיבוי יציג את הגרף ללא הדגשת הקליק"
             }
             checked={showHighlight}
             onChange={setShowHighlight}

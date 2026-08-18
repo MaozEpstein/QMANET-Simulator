@@ -21,7 +21,7 @@ interface Props {
   height?: number;
   mode?: "geometric" | "force";
   highlight?: Set<number>;
-  /** Custom color for the primary highlight set. Defaults to palette.queraPurpleGlow. */
+  /** Custom color for the primary highlight set. Defaults to palette.highlight (amber). */
   highlightColor?: string;
   /** When given (only for geometric MANET), draws a translucent comm-radius ring per node. */
   commRadius?: number;
@@ -75,7 +75,7 @@ export function GraphView({
   showDegrees = false,
   degreeEdges,
 }: Props) {
-  const hiColor = highlightColor ?? palette.queraPurpleGlow;
+  const hiColor = highlightColor ?? palette.highlight;
   const svgRef = useRef<SVGSVGElement | null>(null);
   const simRef = useRef<d3.Simulation<SimNode, undefined> | null>(null);
   const degrees = useMemo(
@@ -163,6 +163,7 @@ export function GraphView({
     }
 
     // Links
+    const hasHighlight = !!highlight && highlight.size > 0;
     const isCliqueEdge = (d: SimLink) =>
       emphasizeHighlightedEdges &&
       !!highlight &&
@@ -191,6 +192,10 @@ export function GraphView({
         if (isCliqueEdge(d)) return 0.95;
         // Dim non-neighbour edges when a node is selected so the focus reads cleanly.
         if (selectedNode !== null && selectedNode !== undefined) return 0.25;
+        // Dim the rest of the graph when a highlight set is active — the eye
+        // goes to what stays bright, which reads better than boosting the
+        // highlighted set alone.
+        if (hasHighlight) return 0.3;
         return 0.75;
       })
       .attr("stroke-width", (d) => {
@@ -212,6 +217,18 @@ export function GraphView({
       selectedNode !== null && selectedNode !== undefined && id === selectedNode;
     const isHighlighted = (id: number) => !!highlight && highlight.has(id);
 
+    // Thick outer ring on highlighted nodes — a shape cue on top of the color
+    // cue, so the marking survives poor color discrimination.
+    nodeSel
+      .filter((d) => isHighlighted(d.id))
+      .append("circle")
+      .attr("r", 15)
+      .attr("fill", "none")
+      .attr("stroke", hiColor)
+      .attr("stroke-width", 2.5)
+      .attr("stroke-opacity", 0.9)
+      .attr("pointer-events", "none");
+
     nodeSel
       .append("circle")
       .attr("r", (d) => (isSelected(d.id) ? 11 : isHighlighted(d.id) ? 10 : 7))
@@ -224,6 +241,9 @@ export function GraphView({
       .attr("stroke-width", (d) => (isSelected(d.id) ? 2.5 : isHighlighted(d.id) ? 2 : 1))
       .attr("filter", (d) =>
         isSelected(d.id) || isHighlighted(d.id) ? "url(#node-glow)" : null,
+      )
+      .attr("opacity", (d) =>
+        hasHighlight && !isHighlighted(d.id) && !isSelected(d.id) ? 0.45 : 1,
       )
       .style("cursor", onNodeClick ? "pointer" : "default")
       .on("click", (_event, d) => {
@@ -238,6 +258,9 @@ export function GraphView({
       .attr("font-size", 10)
       .attr("font-family", "JetBrains Mono, monospace")
       .attr("fill", "#fff")
+      .attr("opacity", (d) =>
+        hasHighlight && !isHighlighted(d.id) && !isSelected(d.id) ? 0.55 : 1,
+      )
       .attr("pointer-events", "none");
 
     if (showDegrees) {

@@ -25,6 +25,12 @@ export const palette = {
   atomRydberg: "#b388ff", // glowing purple
   blockadeRing: "#b388ff",
 
+  // Highlight (clique / MIS marking) — mint green, deliberately far from the
+  // cyan node color, the purple brand hue and the amber selection focus, so
+  // marked vertices pop on the dark panels. Green also matches the "valid
+  // independent set" language used in Stages 6–7.
+  highlight: "#34d399",
+
   // Feedback
   ok: "#3ddc97",
   warn: "#ffb547",
