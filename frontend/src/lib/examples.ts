@@ -1222,3 +1222,346 @@ export function buildTwoTrianglesExample(): MANETResponse {
     config: { n_nodes: 6, box_size: 200, comm_radius: 30, seed: null },
   };
 }
+
+// =============================================================================
+// Conflict-graph examples — designed for Stage 2's "Conflict Graph" track
+// (backend/pipeline/conflict_graph.py). Each one is a MANET connectivity
+// graph C chosen so that F (built from C's links per Jain, Padhye,
+// Padmanabhan & Qiu, MobiCom 2003) is itself pedagogically interesting.
+// Every geometry below (comm_radius / recommended interference radius) was
+// numerically verified — see the git history for the verification script —
+// so the described F actually materializes with the given parameters.
+// =============================================================================
+
+/**
+ * Hidden Terminal Problem — the smallest possible conflict-graph instance.
+ *
+ * Tobagi & Kleinrock, "Packet Switching in Radio Channels: Part II — The
+ * Hidden Terminal Problem..." IEEE Trans. Commun. COM-23(12), 1975.
+ *
+ * 3 nodes in a line, A—B—C. A and C are each within range of B but NOT of
+ * each other (comm_radius=45 connects A-B and B-C at distance 40, but
+ * A-C at distance 80 stays disconnected) — the textbook hidden-terminal
+ * layout. The two links share endpoint B, so they conflict in F regardless
+ * of the interference radius: F is a single edge (K₂). Recommended R'=45.
+ */
+export function buildHiddenTerminalExample(): MANETResponse {
+  const positions = [
+    { id: 0, x: 60, y: 50 },
+    { id: 1, x: 100, y: 50 },
+    { id: 2, x: 140, y: 50 },
+  ];
+  const edges: [number, number][] = [
+    [0, 1],
+    [1, 2],
+  ];
+  return {
+    graph: { n_nodes: 3, edges, node_positions: positions },
+    config: { n_nodes: 3, box_size: 200, comm_radius: 45, seed: null },
+  };
+}
+
+/**
+ * Jain, Padhye, Padmanabhan & Qiu (MobiCom 2003) — the paper's own worked
+ * example (§4.1, Figure 4 / Table 1): a 3×3 grid, lateral range only (no
+ * diagonal links), interference range equal to the communication range.
+ *
+ * 9 nodes on a 35-unit grid, comm_radius=40 (connects orthogonal neighbours
+ * at distance 35, excludes diagonals at 49.5). Recommended R'=40 (=R, the
+ * paper's own assumption for this example). Verified: |E(C)|=12 links →
+ * F has 12 vertices and 54 edges (81.8% density) — this *is* faithful to
+ * the paper, not a bug: Table 1's own conflict matrix for this exact grid
+ * is similarly dense (a tightly-packed grid means almost every link sits
+ * within interference range of almost every other).
+ */
+export function buildJainGrid3x3Example(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const step = 35;
+  const positions = Array.from({ length: 9 }, (_, k) => {
+    const r = Math.floor(k / 3);
+    const c = k % 3;
+    return { id: k, x: cx + (c - 1) * step, y: cy + (1 - r) * step };
+  });
+  const edges: [number, number][] = [];
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 2; c++) {
+      edges.push([r * 3 + c, r * 3 + c + 1]); // horizontal
+    }
+  }
+  for (let c = 0; c < 3; c++) {
+    for (let r = 0; r < 2; r++) {
+      edges.push([r * 3 + c, (r + 1) * 3 + c]); // vertical
+    }
+  }
+  return {
+    graph: { n_nodes: 9, edges, node_positions: positions },
+    config: { n_nodes: 9, box_size: 200, comm_radius: 40, seed: null },
+  };
+}
+
+/**
+ * The Pentagon Conflict Graph — an original construction (not from a paper)
+ * built to geometrically realize the "odd hole" that Jain et al. discuss in
+ * Figures 2–3: a conflict graph where clique-only LP constraints are not
+ * tight, because C₅ is self-complementary (max clique = 2, but naive
+ * fractional relaxation over cliques alone would suggest more).
+ *
+ * 5 "petals" (short 2-node links) arranged around a ring. Each petal's
+ * nearest neighbours geometrically are exactly its two ring-neighbours —
+ * verified numerically: with ρ=40 (ring radius), δ=15° (half-angle per
+ * petal), comm_radius=24 (connects only each petal's own 2 nodes — C is a
+ * perfect matching, 5 disjoint links, no shared endpoints at all) and
+ * R'=45, F comes out to *exactly* a 5-cycle (C₅): link k conflicts with
+ * links (k±1) mod 5 and nothing else. Since C₅ is self-complementary,
+ * MIS(F) = 2 — only two links can ever be scheduled together, no matter how
+ * you pick them.
+ */
+export function buildConflictPentagonExample(): MANETResponse {
+  const cx = 100;
+  const cy = 50;
+  const rho = 40;
+  const delta = (15 * Math.PI) / 180;
+  const positions: { id: number; x: number; y: number }[] = [];
+  const edges: [number, number][] = [];
+  for (let k = 0; k < 5; k++) {
+    const theta = -Math.PI / 2 + (2 * Math.PI * k) / 5;
+    positions.push({
+      id: 2 * k,
+      x: cx + rho * Math.cos(theta - delta),
+      y: cy + rho * Math.sin(theta - delta),
+    });
+    positions.push({
+      id: 2 * k + 1,
+      x: cx + rho * Math.cos(theta + delta),
+      y: cy + rho * Math.sin(theta + delta),
+    });
+    edges.push([2 * k, 2 * k + 1]);
+  }
+  return {
+    graph: { n_nodes: 10, edges, node_positions: positions },
+    config: { n_nodes: 10, box_size: 200, comm_radius: 24, seed: null },
+  };
+}
+
+/**
+ * Single Access Point (infrastructure WLAN star) — every link shares the AP
+ * endpoint, so F is a complete graph K_n *regardless of the interference
+ * radius*. This is the standard 802.11/CSMA textbook fact behind why a
+ * single AP needs centralized scheduling: only one client can transmit at
+ * a time. The cleanest, most intuitive entry point into "what is a conflict
+ * graph" — no R' tuning needed at all.
+ *
+ * 1 hub + 5 clients on a ring (n=5 chosen deliberately: for n≥6 evenly-
+ * spaced clients around a hub, the client-to-client spacing can never
+ * exceed the hub distance — verified geometrically — so the star would
+ * accidentally also connect clients to each other in C). comm_radius=32
+ * connects each client to the hub (distance 30) but not to its neighbours
+ * (nearest client-client distance 35.3).
+ */
+export function buildApStarExample(): MANETResponse {
+  const hub = { id: 0, x: 100, y: 50 };
+  const rho = 30;
+  const positions = [hub];
+  const edges: [number, number][] = [];
+  for (let k = 0; k < 5; k++) {
+    const theta = -Math.PI / 2 + (2 * Math.PI * k) / 5;
+    positions.push({ id: k + 1, x: hub.x + rho * Math.cos(theta), y: hub.y + rho * Math.sin(theta) });
+    edges.push([0, k + 1]);
+  }
+  return {
+    graph: { n_nodes: 6, edges, node_positions: positions },
+    config: { n_nodes: 6, box_size: 200, comm_radius: 32, seed: null },
+  };
+}
+
+/**
+ * Interference Chain — a linear multi-hop MANET, tunable via Stage 2's R'
+ * slider to demonstrate Jain et al. §3.1's central point live.
+ *
+ * 6 nodes spaced 28 units apart, comm_radius=30 (links only consecutive
+ * nodes: P₆, 5 links). A subtlety worth knowing before exploring: because
+ * comm_radius must be ≥ the node spacing for the chain to connect at all,
+ * setting R'=comm_radius (30) *already* extends conflicts one hop beyond
+ * shared endpoints — verified: F comes out as "path-squared" (7 edges: the
+ * usual 4 consecutive-link conflicts, plus 3 more between links one hop
+ * apart) rather than a bare path. This is itself the teaching point:
+ * interference is never purely local. Raising R' to ~60 (≈2×comm_radius)
+ * extends conflicts a further hop (9 edges, "path-cubed"), visibly
+ * shrinking the number of links schedulable together as R' grows.
+ */
+export function buildInterferenceChainExample(): MANETResponse {
+  const d = 28;
+  const positions = Array.from({ length: 6 }, (_, i) => ({ id: i, x: 30 + i * d, y: 50 }));
+  const edges: [number, number][] = Array.from({ length: 5 }, (_, i) => [i, i + 1]);
+  return {
+    graph: { n_nodes: 6, edges, node_positions: positions },
+    config: { n_nodes: 6, box_size: 200, comm_radius: 30, seed: null },
+  };
+}
+
+/**
+ * Two Isolated Hubs — spatial reuse, the flip side of the single-AP example.
+ *
+ * Two independent stars (1 hub + 4 clients each), placed far enough apart
+ * (hub-to-hub distance 100, vs. a cluster radius of only 18) that no
+ * interference radius worth using could ever connect them. F is exactly
+ * two disjoint K₄'s: one link from *each* cluster can transmit at the same
+ * time — the spatial-reuse principle behind cellular frequency reuse.
+ * comm_radius=20 (hub-client distance 18, nearest client-client 25.5).
+ */
+export function buildTwoHubsReuseExample(): MANETResponse {
+  const rho = 18;
+  const hubs = [
+    { x: 50, y: 50 },
+    { x: 150, y: 50 },
+  ];
+  const positions: { id: number; x: number; y: number }[] = [];
+  const edges: [number, number][] = [];
+  let id = 0;
+  for (const hub of hubs) {
+    const hubId = id++;
+    positions.push({ id: hubId, x: hub.x, y: hub.y });
+    for (let k = 0; k < 4; k++) {
+      const theta = -Math.PI / 2 + (2 * Math.PI * k) / 4;
+      const clientId = id++;
+      positions.push({ id: clientId, x: hub.x + rho * Math.cos(theta), y: hub.y + rho * Math.sin(theta) });
+      edges.push([hubId, clientId]);
+    }
+  }
+  return {
+    graph: { n_nodes: 10, edges, node_positions: positions },
+    config: { n_nodes: 10, box_size: 200, comm_radius: 20, seed: null },
+  };
+}
+
+/**
+ * Shared builder for the two hexagonal cellular-reuse examples below. Each
+ * "cell" is modeled as one short 2-node link (base-station ↔ representative
+ * user) placed at a hex-lattice cell center, 1 unit long — short enough
+ * that cross-cell distances are, to within ±0.5, the pure hex center-to-
+ * center distances. `rings` hex rings around a center cell give
+ * 3·rings·(rings+1)+1 cells (1 for rings=0, 7 for rings=1, 19 for rings=2).
+ * comm_radius=2 connects only each cell's own 2 nodes.
+ *
+ * With s=30 (cell spacing) and R'=40 (between the 30-unit adjacent-cell
+ * distance and the 51.96-unit next-ring distance), F reproduces exactly the
+ * hex adjacency graph — the standard cellular frequency-reuse-3 pattern for
+ * rings=1 (Hale, "Frequency assignment: Theory and applications," Proc.
+ * IEEE 68(12), 1980): a cell's link conflicts with (i.e. can't share a
+ * channel with) its neighbouring cells' links.
+ */
+function buildHexCellularExample(rings: number): MANETResponse {
+  const AXIAL_DIRS: [number, number][] = [
+    [1, 0],
+    [1, -1],
+    [0, -1],
+    [-1, 0],
+    [-1, 1],
+    [0, 1],
+  ];
+  const s = 30;
+  const cx = 100;
+  const cy = 50;
+  const cells: { q: number; r: number }[] = [{ q: 0, r: 0 }];
+  for (let radius = 1; radius <= rings; radius++) {
+    let q = AXIAL_DIRS[4][0] * radius;
+    let r = AXIAL_DIRS[4][1] * radius;
+    for (let i = 0; i < 6; i++) {
+      for (let step = 0; step < radius; step++) {
+        cells.push({ q, r });
+        q += AXIAL_DIRS[i][0];
+        r += AXIAL_DIRS[i][1];
+      }
+    }
+  }
+  const positions: { id: number; x: number; y: number }[] = [];
+  const edges: [number, number][] = [];
+  cells.forEach((cell, i) => {
+    const x = cx + s * (cell.q + cell.r / 2);
+    const y = cy + s * (Math.sqrt(3) / 2) * cell.r;
+    positions.push({ id: 2 * i, x: x - 0.5, y });
+    positions.push({ id: 2 * i + 1, x: x + 0.5, y });
+    edges.push([2 * i, 2 * i + 1]);
+  });
+  return {
+    graph: { n_nodes: cells.length * 2, edges, node_positions: positions },
+    config: { n_nodes: cells.length * 2, box_size: 200, comm_radius: 2, seed: null },
+  };
+}
+
+/**
+ * Hexagonal cellular reuse — SMALL (reuse-3 pattern, 7 cells: 1 center +
+ * 1 ring). Verified: |E(C)|=7 links (7 atoms — comfortably within every
+ * local-simulation cap). F has 12 edges: the center cell conflicts with
+ * all 6 ring cells, and each ring cell also conflicts with its 2
+ * ring-neighbours — exactly the reuse-3 co-channel constraint graph.
+ * Runs the full pipeline (Stages 1–8) locally without hitting any cap.
+ */
+export function buildHexCellularSmallExample(): MANETResponse {
+  return buildHexCellularExample(1);
+}
+
+/**
+ * Hexagonal cellular reuse — LARGE (reuse-7-scale pattern, 19 cells: 1
+ * center + 2 rings). Verified: |E(C)|=19 links → 19 atoms, which exceeds
+ * GAP_MAX_ATOMS=16 — Stage 4 (spectrum/gap) and Stage 5 (full sesolve,
+ * 2¹⁹ states) will refuse, exactly like the existing "MANET RGG n=20"
+ * stress example. Stages 1–3 and 8 still work. F has 42 edges (the full
+ * 2-ring hex adjacency structure) — a deliberate demonstration of why
+ * Phase 7 (Braket → QuEra) exists for realistically-sized interference
+ * graphs.
+ */
+export function buildHexCellularLargeExample(): MANETResponse {
+  return buildHexCellularExample(2);
+}
+
+/**
+ * Community mesh network — SMALL, in the spirit of Jain et al. §4.2's
+ * neighbourhood-mesh case study (252 houses, 35 random participants,
+ * Figures 6–7): a small random subset of "houses" with a realistic
+ * comm_radius, small enough to stay inside every local-simulation cap.
+ *
+ * 11 randomly-placed nodes (seed=153, reproducible), comm_radius=45.
+ * Verified: connected, |E(C)|=11 links (11 atoms) — runs the full
+ * pipeline locally.
+ */
+export function buildCommunityMeshSmallExample(): MANETResponse {
+  const rng = mulberry32(153);
+  const positions = Array.from({ length: 11 }, (_, i) => ({
+    id: i,
+    x: rng() * 200,
+    y: rng() * 100,
+  }));
+  const edges = edgesByRgg(positions, 45);
+  return {
+    graph: { n_nodes: 11, edges, node_positions: positions },
+    config: { n_nodes: 11, box_size: 200, comm_radius: 45, seed: 153 },
+  };
+}
+
+/**
+ * Community mesh network — LARGE, same neighbourhood-mesh spirit as the
+ * small version but sized to deliberately exceed local-simulation limits.
+ *
+ * 18 randomly-placed nodes (seed=11, reproducible), comm_radius=45.
+ * Verified: connected, |E(C)|=44 links (44 atoms) — matches the density a
+ * realistic 250 m-range mesh over a few city blocks would produce. Well
+ * past GAP_MAX_ATOMS=16 and 2⁴⁴ states is nowhere near sesolve-feasible;
+ * Stages 1–3 and 8 still work, same "why Phase 7" story as the hex-large
+ * and RGG-20 examples, from a genuinely mesh-shaped (not grid/lattice)
+ * topology this time.
+ */
+export function buildCommunityMeshLargeExample(): MANETResponse {
+  const rng = mulberry32(11);
+  const positions = Array.from({ length: 18 }, (_, i) => ({
+    id: i,
+    x: rng() * 200,
+    y: rng() * 100,
+  }));
+  const edges = edgesByRgg(positions, 45);
+  return {
+    graph: { n_nodes: 18, edges, node_positions: positions },
+    config: { n_nodes: 18, box_size: 200, comm_radius: 45, seed: 11 },
+  };
+}

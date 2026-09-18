@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type {
+  ConflictGraphResponse,
   EmbedResponse,
   GapTraceDTO,
   MANETResponse,
@@ -11,6 +12,16 @@ import type {
   SpectrumTraceDTO,
 } from "../api/rest";
 import { stableHash } from "../lib/stageHash";
+
+/**
+ * Stage 2 method. "direct" is the original clique↔MIS-on-complement track;
+ * "conflict" builds the interference conflict graph F over the MANET's links
+ * (Jain et al., MobiCom 2003) and runs the same complement+MIS machinery on
+ * F instead of on the MANET graph itself. Each track keeps its own result
+ * slot (see `misDirect`/`misConflict`) so switching between them never loses
+ * work or forces a recompute of an already-fresh result.
+ */
+export type MisTrack = "direct" | "conflict";
 
 export interface SimulationState {
   frames: SimulationFrameDTO[];
@@ -90,8 +101,29 @@ interface PipelineState {
   manet: MANETResponse | null;
   setManet: (m: MANETResponse | null) => void;
 
+  /** Which Stage-2 method is active. Downstream stages (3–8) never read this
+   *  directly — they consume `mis`, which always mirrors the active track's
+   *  slot, so they stay generic over the method that produced it. */
+  track: MisTrack;
+  setTrack: (t: MisTrack) => void;
+
+  /** Independent per-track result slots — see `MisTrack` doc comment. */
+  misDirect: MISResponse | null;
+  misConflict: MISResponse | null;
+  /** Mirror of `track === "direct" ? misDirect : misConflict`. This is what
+   *  every stage from 3 onward reads; kept in sync by `setMIS`/`setTrack` so
+   *  those stages need no awareness of the two-track split. */
   mis: MISResponse | null;
+  /** Writes into the *active* track's slot and refreshes the `mis` mirror. */
   setMIS: (m: MISResponse | null) => void;
+
+  /** Stage-2 conflict-track intermediate: F, built from the MANET graph. */
+  conflictGraph: ConflictGraphResponse | null;
+  setConflictGraph: (c: ConflictGraphResponse | null) => void;
+  /** Interference radius R' used to build the conflict graph. Defaults to
+   *  the MANET's comm_radius the first time the conflict track is used. */
+  interferenceRadius: number;
+  setInterferenceRadius: (r: number) => void;
 
   embed: EmbedResponse | null;
   setEmbed: (e: EmbedResponse | null) => void;
@@ -131,7 +163,10 @@ interface PipelineState {
 }
 
 export interface SourceHashes {
-  mis?: string;
+  /** Keyed per Stage-2 track — each slot's freshness is judged against its
+   *  own upstream (MANET graph for "direct"; MANET graph + interference
+   *  radius for "conflict"), independent of which track is currently active. */
+  mis?: { direct?: string; conflict?: string };
   embed?: string;
   schedule?: string;
   simulation?: string;
@@ -153,7 +188,15 @@ export function selectStaleStages(state: PipelineState): {
   simulation: boolean;
 } {
   const h = state.sourceHashes;
-  const misUpstreamHash = state.manet ? stableHash(state.manet.graph) : undefined;
+  // The active track's own upstream — "direct" depends only on the MANET
+  // graph, "conflict" also depends on the interference radius used to build
+  // F, so editing R' correctly flags the conflict-track MIS as stale even
+  // when the MANET graph itself hasn't changed.
+  const misUpstreamHash = state.manet
+    ? state.track === "direct"
+      ? stableHash(state.manet.graph)
+      : stableHash({ graph: state.manet.graph, interferenceRadius: state.interferenceRadius })
+    : undefined;
   const embedUpstreamHash = state.mis ? stableHash(state.mis.complement) : undefined;
   const scheduleUpstreamHash = state.embed
     ? stableHash({
@@ -162,7 +205,8 @@ export function selectStaleStages(state: PipelineState): {
       })
     : undefined;
 
-  const misStale = !!state.mis && !!h.mis && h.mis !== misUpstreamHash;
+  const misHash = h.mis?.[state.track];
+  const misStale = !!state.mis && !!misHash && misHash !== misUpstreamHash;
   const embedStale = !!state.embed && !!h.embed && h.embed !== embedUpstreamHash;
   const scheduleStale =
     !!state.schedule && !!h.schedule && h.schedule !== scheduleUpstreamHash;
@@ -198,20 +242,46 @@ export const usePipeline = create<PipelineState>()(
       setStage: (s) => set({ currentStage: s }),
       manet: null,
       setManet: (m) => set({ manet: m }),
+      track: "conflict",
+      setTrack: (t) =>
+        set((state) => ({
+          track: t,
+          // Swap the mirror to whatever the other slot already holds — this
+          // is what makes switching tracks free (no recompute) when a fresh
+          // result is already cached there. If nothing is cached, `mis`
+          // becomes null and Stage 2's effect will fetch it.
+          mis: t === "direct" ? state.misDirect : state.misConflict,
+          postProcess: null,
+        })),
+      misDirect: null,
+      misConflict: null,
       mis: null,
       setMIS: (m) => {
-        const upstream = get().manet?.graph;
+        const track = get().track;
+        const manetGraph = get().manet?.graph;
+        const interferenceRadius = get().interferenceRadius;
+        const upstreamHash = m
+          ? track === "direct"
+            ? stableHash(manetGraph ?? null)
+            : stableHash({ graph: manetGraph ?? null, interferenceRadius })
+          : undefined;
         set((state) => ({
           mis: m,
+          misDirect: track === "direct" ? m : state.misDirect,
+          misConflict: track === "conflict" ? m : state.misConflict,
           // MIS change cascades through embed/schedule/sim — drop the
           // post-process cache so Stage 8 doesn't route over a stale backbone.
           postProcess: null,
           sourceHashes: {
             ...state.sourceHashes,
-            mis: m ? stableHash(upstream ?? null) : undefined,
+            mis: { ...state.sourceHashes.mis, [track]: upstreamHash },
           },
         }));
       },
+      conflictGraph: null,
+      setConflictGraph: (c) => set({ conflictGraph: c }),
+      interferenceRadius: 35,
+      setInterferenceRadius: (r) => set({ interferenceRadius: r }),
       embed: null,
       // Changing the embed invalidates all schedule-derived analyses (positions
       // feed every diagonalisation).
@@ -316,15 +386,30 @@ export const usePipeline = create<PipelineState>()(
     {
       name: "qsim.pipeline.v1",
       storage: createJSONStorage(() => localStorage),
-      // v2 added scheduleAnalysis (gap / spectrum / phase). A v1 payload simply
-      // didn't carry that field — merging it onto the runtime defaults gives
-      // us the right behaviour (empty analysis, ready to be recomputed) without
-      // wiping the rest of the user's pipeline.
-      version: 2,
-      migrate: (persisted: unknown, _from) => {
+      // v2 added scheduleAnalysis (gap / spectrum / phase). v3 added the
+      // Stage-2 conflict-graph track (`track`, `misDirect`/`misConflict`,
+      // `conflictGraph`, `interferenceRadius`) alongside the pre-existing
+      // `mis` field, which now acts as a mirror of the active slot.
+      version: 3,
+      migrate: (persisted: unknown, from) => {
         const p = (persisted ?? {}) as Record<string, unknown>;
         if (!("scheduleAnalysis" in p)) {
           p.scheduleAnalysis = { ...EMPTY_ANALYSIS };
+        }
+        if (from < 3) {
+          // A pre-v3 payload's `mis` is the (only) direct-track result —
+          // preserve it there and start the conflict track empty.
+          p.track = "direct";
+          p.misDirect = p.mis ?? null;
+          p.misConflict = null;
+          p.conflictGraph = null;
+          const manet = p.manet as { config?: { comm_radius?: number } } | null | undefined;
+          p.interferenceRadius = manet?.config?.comm_radius ?? 35;
+          const sourceHashes = (p.sourceHashes ?? {}) as Record<string, unknown>;
+          if (typeof sourceHashes.mis === "string") {
+            sourceHashes.mis = { direct: sourceHashes.mis };
+          }
+          p.sourceHashes = sourceHashes;
         }
         return p;
       },
@@ -334,7 +419,12 @@ export const usePipeline = create<PipelineState>()(
       partialize: (state) => ({
         currentStage: state.currentStage,
         manet: state.manet,
+        track: state.track,
         mis: state.mis,
+        misDirect: state.misDirect,
+        misConflict: state.misConflict,
+        conflictGraph: state.conflictGraph,
+        interferenceRadius: state.interferenceRadius,
         embed: state.embed,
         schedule: state.schedule,
         sourceHashes: state.sourceHashes,

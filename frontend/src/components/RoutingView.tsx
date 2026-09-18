@@ -182,7 +182,7 @@ export function RoutingView({
           const isSrc = selectedSrc === n.id;
           const isDst = selectedDst === n.id;
           const onPath = activeRoute?.path.includes(n.id);
-          const r = isSrc || isDst ? 10 : isBack || onPath ? 8 : 6;
+          const r = isSrc || isDst ? 11 : isBack || onPath ? 9 : 8;
           const fill = isSrc
             ? palette.ok
             : isDst
@@ -208,10 +208,14 @@ export function RoutingView({
                 filter={isBack || isSrc || isDst ? "url(#packet-glow)" : undefined}
               />
               <text
-                fontSize={9}
+                fontSize={11}
+                fontWeight={700}
                 fill="#fff"
+                stroke={palette.bgInset}
+                strokeWidth={3}
+                paintOrder="stroke"
                 textAnchor="middle"
-                dy={3}
+                dy={4}
                 style={{ fontFamily: "JetBrains Mono, monospace", pointerEvents: "none" }}
               >
                 {n.id}

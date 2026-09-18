@@ -6,6 +6,7 @@
  * cancels by calling the returned `close()`.
  */
 
+import { getWsBase } from "./config";
 import type { SimulateRequest, SimulationFrameDTO } from "./rest";
 
 export type EvolutionMessage =
@@ -41,9 +42,7 @@ export function streamSimulation(
     onOpen?: () => void;
   },
 ): EvolutionHandle {
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = window.location.host;
-  const url = `${proto}//${host}/ws/simulate`;
+  const url = `${getWsBase()}/ws/simulate`;
 
   const ws = new WebSocket(url);
   let open = true;

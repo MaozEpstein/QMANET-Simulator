@@ -35,6 +35,27 @@ class ComplementRequest(BaseModel):
     graph: GraphDTO
 
 
+class ConflictGraphRequest(BaseModel):
+    """Build the interference conflict graph F over the links of ``graph``.
+
+    See ``pipeline.conflict_graph`` for the construction rule (Jain et al.,
+    MobiCom 2003, bidirectional-MAC variant)."""
+
+    graph: GraphDTO
+    interference_radius: float = Field(..., gt=0.0)
+
+
+class ConflictGraphResponse(BaseModel):
+    conflict_graph: GraphDTO
+    """F — one vertex per link of ``graph``."""
+    conflict_graph_complement: GraphDTO
+    """F̄ — feed *this* (not ``conflict_graph``) into ``/api/graph/complement``
+    to get MIS(F) out of the existing complement+MIS pipeline. See
+    ``pipeline.conflict_graph.ConflictGraphResult`` for why."""
+    link_endpoints: list[tuple[int, int]]
+    """link_endpoints[k] = (i, j) — the input-graph edge F's vertex k represents."""
+
+
 class MISResponse(BaseModel):
     graph: GraphDTO
     complement: GraphDTO

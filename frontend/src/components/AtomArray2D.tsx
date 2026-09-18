@@ -396,10 +396,14 @@ export function AtomArray2D({
                 </>
               ) : (
                 <text
-                  fontSize={9}
+                  fontSize={11}
+                  fontWeight={700}
                   fill="#fff"
+                  stroke={palette.bgInset}
+                  strokeWidth={3}
+                  paintOrder="stroke"
                   textAnchor="middle"
-                  dy={3}
+                  dy={4}
                   style={{ fontFamily: "JetBrains Mono, monospace", pointerEvents: "none" }}
                 >
                   {a.id}

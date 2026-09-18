@@ -14,15 +14,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/rest";
 import {
+  buildApStarExample,
   buildBarabasiAlbertExample,
   buildBernienChain9Example,
   buildC4Example,
   buildC7HardExample,
+  buildCommunityMeshLargeExample,
+  buildCommunityMeshSmallExample,
+  buildConflictPentagonExample,
   buildDenseManetExample,
   buildErdosRenyiExample,
   buildFruchtExample,
   buildGrotzschExample,
   buildHeawoodExample,
+  buildHexCellularLargeExample,
+  buildHexCellularSmallExample,
+  buildHiddenTerminalExample,
+  buildInterferenceChainExample,
+  buildJainGrid3x3Example,
   buildK33Example,
   buildK5Example,
   buildKarniEnsemble12Example,
@@ -44,6 +53,7 @@ import {
   buildSparseDisconnectedManetExample,
   buildTriangularPrismExample,
   buildTuran93Example,
+  buildTwoHubsReuseExample,
   buildTwoTrianglesExample,
   buildUrbanClustersExample,
 } from "../lib/examples";
@@ -59,6 +69,7 @@ import { palette } from "../theme/palette";
 type CategoryId =
   | "myGraphs"
   | "starter"
+  | "conflictGraph"
   | "topology"
   | "paper"
   | "kingsLattice"
@@ -83,6 +94,11 @@ interface Example {
   n: number;               // size (atoms / nodes)
   category: CategoryId;
   paperRef?: string;       // e.g. "Ebadi 2022 §6.1"
+  /** Recommended interference radius R' for the conflict-graph track — set
+   *  automatically on load so the example's described F actually
+   *  materializes without the user having to hand-tune the slider first.
+   *  Falls back to the graph's own comm_radius when omitted. */
+  interferenceRadius?: number;
   status?: "available" | "soon";
   build?: () => ReturnType<typeof buildPetersenExample>;
   saved?: SavedGraph;      // present only for entries loaded from localStorage
@@ -100,6 +116,12 @@ const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?:
     id: "starter",
     title: "התחלה",
     subtitle: "גרפים קטנים עם תוצאה ידועה — להבנה ראשונית של הצינור",
+  },
+  {
+    id: "conflictGraph",
+    title: "גרף הקונפליקטים · Conflict Graph",
+    subtitle:
+      "MANET-ים שנבחרו/עוצבו ייעודית כך שה-F שנבנה מהם (שלב 2, טוגל 'Conflict Graph') יוצא מעניין פדגוגית — טענו את הגרף כאן, ואז עברו לטוגל בשלב 2 כדי לראות את F.",
   },
   {
     id: "kingsLattice",
@@ -199,6 +221,122 @@ const EXAMPLES: Example[] = [
     n: 8,
     category: "starter",
     build: buildPathP8Example,
+  },
+  {
+    id: "hidden-terminal",
+    name: "Hidden Terminal",
+    englishName: "Hidden terminal problem",
+    description:
+      "3 צמתים בשורה A—B—C. A ו-C בטווח של B אבל לא זה של זה. שני הקישורים חולקים את B ולכן מתנגשים בכל R' — F הוא קשת בודדת (K₂). הדוגמה הכי פשוטה להבנת מה זה בכלל 'קונפליקט'.",
+    n: 3,
+    category: "conflictGraph",
+    paperRef: "Tobagi & Kleinrock, IEEE Trans. Commun. 1975",
+    interferenceRadius: 45,
+    build: buildHiddenTerminalExample,
+  },
+  {
+    id: "jain-grid-3x3",
+    name: "Jain et al. — 3×3 Grid",
+    englishName: "MobiCom'03 worked example",
+    description:
+      "שחזור מדויק של הדוגמה שהמאמר עצמו מנתח (§4.1, Fig 4/Table 1): רשת 3×3, טווח לרוחב/גובה בלבד (לא אלכסונים), R'=R. 12 קישורים → F עם 12 קודקודים ו-54 קשתות (78% צפיפות) — בדיוק כמו הצפיפות הגבוהה שמופיעה ב-Table 1 של המאמר עצמו.",
+    n: 9,
+    category: "conflictGraph",
+    paperRef: "Jain, Padhye, Padmanabhan & Qiu, MobiCom 2003, Fig 4 / Table 1",
+    interferenceRadius: 40,
+    build: buildJainGrid3x3Example,
+  },
+  {
+    id: "conflict-pentagon",
+    name: "מחומש הקונפליקטים",
+    englishName: "Pentagon conflict graph (odd hole)",
+    description:
+      "קונסטרוקציה מקורית (לא ממאמר) בהשראת ה-odd hole שב-Fig 2/3 של Jain et al.: 5 קישורים קצרים ('עלי כותרת') מסודרים בטבעת. עם R'=45, F יוצא מחומש (C₅) בדיוק — כל קישור מתנגש רק עם שני שכניו בטבעת. C₅ הוא self-complementary ⇒ MIS(F)=2 בדיוק: אף פעם לא ניתן לתזמן יותר משני קישורים יחד, בלי קשר לבחירה.",
+    n: 10,
+    category: "conflictGraph",
+    interferenceRadius: 45,
+    build: buildConflictPentagonExample,
+  },
+  {
+    id: "ap-star",
+    name: "AP יחיד (כוכב)",
+    englishName: "Single access-point star → K_n",
+    description:
+      "1 AP מרכזי + 5 לקוחות — כל הקישורים חולקים את ה-AP ולכן F הוא גרף שלם K₅, בלי תלות ב-R' בכלל. עובדת מוכרת מ-WiFi: ב-AP יחיד, לקוח אחד יכול לשדר בכל רגע. הדוגמה הכי אינטואיטיבית להתחיל איתה.",
+    n: 6,
+    category: "conflictGraph",
+    interferenceRadius: 32,
+    build: buildApStarExample,
+  },
+  {
+    id: "interference-chain",
+    name: "שרשרת רב-קפיצתית",
+    englishName: "Interference chain — R' sweep",
+    description:
+      "6 צמתים בשורה, 5 קישורים. ב-R'=טווח התקשורת (30, ברירת מחדל) F כבר חורג משיתוף-צומת בלבד ומחבר גם קישורים במרחק קפיצה אחת — 'ריבוע מסלול' (7 קשתות). הזיזו את ה-R' בשלב 2 לכ-60 ותראו קשתות נוספות נכנסות (9) — פחות קישורים ניתנים לתזמון יחד ככל שה-R' גדל. הדגמה חיה של §3.1 ב-Jain et al.",
+    n: 6,
+    category: "conflictGraph",
+    interferenceRadius: 30,
+    build: buildInterferenceChainExample,
+  },
+  {
+    id: "two-hubs-reuse",
+    name: "שני Hubs מבודדים — Spatial Reuse",
+    englishName: "Two isolated hubs — spatial reuse",
+    description:
+      "שני כוכבים (AP+4 לקוחות כל אחד) רחוקים זה מזה. F = שני K₄ מנותקים — קישור אחד מכל תא יכולים לשדר בו-זמנית. העיקרון מאחורי reuse בסלולר, הצד השני של דוגמת ה-AP היחיד.",
+    n: 10,
+    category: "conflictGraph",
+    interferenceRadius: 20,
+    build: buildTwoHubsReuseExample,
+  },
+  {
+    id: "hex-cellular-small",
+    name: "תאים משושים — Reuse-3 (7 תאים)",
+    englishName: "Hexagonal cellular reuse (small)",
+    description:
+      "7 תאים (מרכזי + טבעת אחת), כל תא = קישור קצרצר. עם R'=40, F משחזר בדיוק את גרף השכנות המשושה — תבנית reuse-3 קלאסית. 7 אטומים בלבד — רץ מקצה לקצה מקומית.",
+    n: 14,
+    category: "conflictGraph",
+    paperRef: "Hale, Proc. IEEE 68(12), 1980 (frequency assignment)",
+    interferenceRadius: 40,
+    build: buildHexCellularSmallExample,
+  },
+  {
+    id: "hex-cellular-large",
+    name: "תאים משושים — Reuse-7 (19 תאים) ⚠",
+    englishName: "Hexagonal cellular reuse (large, stress)",
+    description:
+      "אותה קונסטרוקציה, 2 טבעות (19 תאים) — תבנית reuse-7. ⚠ 19 אטומים חורגים מ-GAP_MAX_ATOMS=16: שלבים 4-5 (ספקטרום/sesolve) יסרבו, בדיוק כמו RGG n=20. שלבים 1-3 ו-8 עובדים. F עם 42 קשתות.",
+    n: 38,
+    category: "conflictGraph",
+    paperRef: "Hale, Proc. IEEE 68(12), 1980 (frequency assignment)",
+    interferenceRadius: 40,
+    build: buildHexCellularLargeExample,
+  },
+  {
+    id: "community-mesh-small",
+    name: "Community Mesh — קטן",
+    englishName: "Community mesh (small)",
+    description:
+      "בהשראת תרחיש ה-neighborhood mesh של Jain et al. (§4.2, 252 בתים/35 משתתפים, Fig 6-7) — כאן בקנה מידה מוקטן: 11 צמתים אקראיים (seed=153), מחוברים. 11 קישורים — רץ מקצה לקצה מקומית.",
+    n: 11,
+    category: "conflictGraph",
+    paperRef: "Jain et al., MobiCom 2003, §4.2 (neighborhood mesh)",
+    interferenceRadius: 45,
+    build: buildCommunityMeshSmallExample,
+  },
+  {
+    id: "community-mesh-large",
+    name: "Community Mesh — גדול ⚠",
+    englishName: "Community mesh (large, stress)",
+    description:
+      "אותו רעיון בצפיפות ריאליסטית: 18 צמתים אקראיים (seed=11), מחוברים, 44 קישורים. ⚠ הרבה מעבר ל-GAP_MAX_ATOMS=16 — שלבים 4-5 יסרבו. טופולוגיית mesh אמיתית (לא רשת/lattice) שממחישה את אותה בעיה.",
+    n: 18,
+    category: "conflictGraph",
+    paperRef: "Jain et al., MobiCom 2003, §4.2 (neighborhood mesh)",
+    interferenceRadius: 45,
+    build: buildCommunityMeshLargeExample,
   },
   {
     id: "kings3x3",
@@ -484,7 +622,10 @@ export function ExamplesButton() {
   }, [loadingStep]);
   const {
     setManet,
+    track,
     setMIS,
+    setConflictGraph,
+    setInterferenceRadius,
     setEmbed,
     setSchedule,
     resetSimulation,
@@ -524,15 +665,34 @@ export function ExamplesButton() {
       setLoadingId(ex.id);
 
       setMIS(null);
+      setConflictGraph(null);
       setEmbed(null);
       setSchedule(null);
       resetSimulation();
       const manet = ex.build();
       setManet(manet);
+      // Every example carries (or falls back to) a sensible R' for its own
+      // scale — without this, loading a small example after exploring a
+      // large one would leave a stale, wildly wrong interference radius.
+      const ir = ex.interferenceRadius ?? manet.config.comm_radius;
+      setInterferenceRadius(ir);
 
       try {
         setLoadingStep("complement");
-        const mis = await api.complement(manet.graph);
+        // Track-aware: on the conflict track, feed F̄ (not the MANET graph
+        // itself) into the same complement/MIS call — see
+        // Stage2_Complement's computeActiveMis for why. Without this branch,
+        // loading *any* example while the conflict track is active (now the
+        // default) would silently store a direct-track result into the
+        // conflict-track slot.
+        let mis;
+        if (track === "conflict") {
+          const cg = await api.conflictGraph(manet.graph, ir);
+          setConflictGraph(cg);
+          mis = await api.complement(cg.conflict_graph_complement);
+        } else {
+          mis = await api.complement(manet.graph);
+        }
         setMIS(mis);
 
         setLoadingStep("embed");
@@ -552,7 +712,18 @@ export function ExamplesButton() {
         setLoadingId(null);
       }
     },
-    [loadingStep, setManet, setMIS, setEmbed, setSchedule, resetSimulation, setStage],
+    [
+      loadingStep,
+      setManet,
+      track,
+      setMIS,
+      setConflictGraph,
+      setInterferenceRadius,
+      setEmbed,
+      setSchedule,
+      resetSimulation,
+      setStage,
+    ],
   );
 
   useEffect(() => {

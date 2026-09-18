@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "../api/rest";
+import type { ConflictGraphResponse, GraphDTO } from "../api/rest";
 import { GraphView } from "../components/GraphView";
 import { Panel } from "../components/Panel";
-import { selectStaleStages, usePipeline } from "../store/pipeline";
+import { selectStaleStages, usePipeline, type MisTrack } from "../store/pipeline";
 import { StaleBanner } from "../components/StaleBanner";
 import { palette } from "../theme/palette";
 
@@ -21,7 +22,17 @@ const CLIQUE_PALETTE = [
 ];
 
 export function Stage2_Complement() {
-  const { manet, mis, setMIS } = usePipeline();
+  const {
+    manet,
+    mis,
+    setMIS,
+    track,
+    setTrack,
+    conflictGraph,
+    setConflictGraph,
+    interferenceRadius,
+    setInterferenceRadius,
+  } = usePipeline();
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [cliqueIndex, setCliqueIndex] = useState(0);
@@ -35,12 +46,31 @@ export function Stage2_Complement() {
   const [showHighlight, setShowHighlight] = useState(true);
   const [showDegrees, setShowDegrees] = useState(false);
 
-  const computeComplement = useCallback(async () => {
+  // Whichever graph Stage 2 currently hands to complement+MIS: the MANET
+  // graph itself on the direct track, or the interference conflict graph F
+  // (built from it) on the conflict track. Both tracks funnel into the exact
+  // same complement/MIS backend call — only the input graph differs.
+  //
+  // On the conflict track we feed the pipeline F̄ (not F): the pipeline
+  // always reports clique(input) — which equals MIS(complement(input)) — so
+  // feeding F directly would report clique(F), a maximal set of *mutually
+  // conflicting* links, the opposite of what we want. Feeding F̄ makes it
+  // report clique(F̄) = MIS(F), with `.complement` coming back as F itself
+  // for Stage 3 to embed. See backend/pipeline/conflict_graph.py.
+  const computeActiveMis = useCallback(async () => {
     if (!manet) return;
     setLoading(true);
     setErr(null);
     try {
-      const res = await api.complement(manet.graph);
+      let target: GraphDTO;
+      if (track === "direct") {
+        target = manet.graph;
+      } else {
+        const cg = await api.conflictGraph(manet.graph, interferenceRadius);
+        setConflictGraph(cg);
+        target = cg.conflict_graph_complement;
+      }
+      const res = await api.complement(target);
       setMIS(res);
       setCliqueIndex(0);
       setSelectedNode(null);
@@ -49,39 +79,44 @@ export function Stage2_Complement() {
     } finally {
       setLoading(false);
     }
-  }, [manet, setMIS]);
+  }, [manet, track, interferenceRadius, setMIS, setConflictGraph]);
 
-  // Graph identity we last fetched a complement for — used to refetch exactly
-  // once per graph change rather than chasing every mis mutation.
-  const lastGraphSigRef = useRef<string | null>(null);
+  const misStale = usePipeline((s) => selectStaleStages(s).mis);
+
+  // Signature of "what should currently be shown" — graph identity + track +
+  // (for the conflict track) the interference radius. Used to refetch
+  // exactly once per meaningful change rather than chasing every mutation.
+  const lastSigRef = useRef<string | null>(null);
   // Whether we already retried due to a stale-cache detection on the *current*
-  // graph. Without this guard, an old backend that doesn't return the new
+  // signature. Without this guard, an old backend that doesn't return the new
   // metric fields would put us in an infinite refetch loop (each refetch
   // writes the same incomplete payload, which re-triggers the guard).
   const staleRetryAttemptedRef = useRef(false);
 
   useEffect(() => {
     if (!manet) return;
-    const sig = `${manet.graph.n_nodes}:${manet.graph.edges.length}`;
+    const sig = `${manet.graph.n_nodes}:${manet.graph.edges.length}:${track}:${
+      track === "conflict" ? interferenceRadius : ""
+    }`;
 
-    if (lastGraphSigRef.current !== sig) {
-      // New graph — fetch fresh; reset the stale-retry guard so this graph
-      // gets its own one-shot attempt.
-      lastGraphSigRef.current = sig;
+    if (lastSigRef.current !== sig) {
+      lastSigRef.current = sig;
       staleRetryAttemptedRef.current = false;
-      computeComplement();
+      // A cached, non-stale result already covers this signature (e.g. the
+      // user just flipped back to a track they'd already computed) — reuse
+      // it instead of recomputing.
+      if (mis === null || misStale) computeActiveMis();
       return;
     }
 
     if (mis === null) {
-      // Same graph signature but no mis (e.g. user cleared it) — refetch once.
-      computeComplement();
+      computeActiveMis();
       return;
     }
 
-    // Stale-cache detection on the same graph: at most one refetch attempt.
-    // If we still don't get the new fields back the user is on an older
-    // backend; we surface the banner instead of looping forever.
+    // Stale-cache detection on the same signature: at most one refetch
+    // attempt. If we still don't get the new fields back the user is on an
+    // older backend; we surface the banner instead of looping forever.
     if (!staleRetryAttemptedRef.current) {
       const missing =
         mis.alpha_g === undefined ||
@@ -91,10 +126,10 @@ export function Stage2_Complement() {
         mis.all_max_cliques === undefined;
       if (missing) {
         staleRetryAttemptedRef.current = true;
-        computeComplement();
+        computeActiveMis();
       }
     }
-  }, [manet, mis, computeComplement]);
+  }, [manet, track, interferenceRadius, mis, misStale, computeActiveMis]);
 
   const cliques: number[][] = useMemo(() => {
     if (!mis) return [];
@@ -114,14 +149,36 @@ export function Stage2_Complement() {
   // is drawn glowing — revealing the raw graph for structural inspection.
   const cliqueSet = showHighlight ? new Set(activeClique) : new Set<number>();
 
+  // Whichever graph currently plays the role of "G" for the complement/MIS
+  // math: the MANET graph itself on the direct track, or F̄ — the complement
+  // of the interference conflict graph — on the conflict track (F̄ is what
+  // actually gets fed to the complement/MIS pipeline; see computeActiveMis).
+  // Falls back to an empty graph while F̄ is still being fetched.
+  const activeGraph: GraphDTO =
+    track === "conflict" && conflictGraph
+      ? conflictGraph.conflict_graph_complement
+      : manet?.graph ?? { n_nodes: 0, edges: [], node_positions: null };
+
+  // Conflict-track vertices *are* MANET links — label them "i–j" instead of
+  // an arbitrary index so the graph reads as what it actually is.
+  const linkLabel = useMemo(() => {
+    if (track !== "conflict" || !conflictGraph) return undefined;
+    const endpoints = conflictGraph.link_endpoints;
+    return (id: number) => {
+      const e = endpoints[id];
+      return e ? `${e[0]}–${e[1]}` : String(id);
+    };
+  }, [track, conflictGraph]);
+
   // Neighbour sets — the dual viewpoint Stage 2 makes concrete: neighbours in
-  // G ↔ non-neighbours in Ḡ.
+  // G ↔ non-neighbours in Ḡ (or, on the conflict track, links that interfere
+  // in F ↔ links that can be scheduled together in F̄).
   const { neighborsInG, neighborsInComplement } = useMemo(() => {
-    if (selectedNode === null || !manet) {
+    if (selectedNode === null) {
       return { neighborsInG: new Set<number>(), neighborsInComplement: new Set<number>() };
     }
     const inG = new Set<number>();
-    for (const [u, v] of manet.graph.edges) {
+    for (const [u, v] of activeGraph.edges) {
       if (u === selectedNode) inG.add(v);
       else if (v === selectedNode) inG.add(u);
     }
@@ -133,7 +190,7 @@ export function Stage2_Complement() {
       }
     }
     return { neighborsInG: inG, neighborsInComplement: inGbar };
-  }, [selectedNode, manet, mis]);
+  }, [selectedNode, activeGraph, mis]);
 
   // Per-clique membership: each entry says whether the selected node is in
   // that clique. Drives the colored-dots indicator in the detail card.
@@ -155,7 +212,7 @@ export function Stage2_Complement() {
     );
   }
 
-  const gStats = computeGraphStats(manet.graph.n_nodes, manet.graph.edges);
+  const gStats = computeGraphStats(activeGraph.n_nodes, activeGraph.edges);
   const gbarStats = mis ? computeGraphStats(mis.complement.n_nodes, mis.complement.edges) : null;
   // Detect a backend that hasn't been restarted after the section-א metrics
   // landed. The refetch in useEffect re-issues /api/graph/complement, but if
@@ -169,7 +226,17 @@ export function Stage2_Complement() {
       mis.chromatic_lower === undefined ||
       mis.chromatic_upper === undefined);
 
-  const stale = usePipeline((s) => selectStaleStages(s).mis);
+  const isConflict = track === "conflict";
+  // Which symbol plays the role of "G"/"Ḡ" for the math on screen. Direct
+  // track: G = MANET graph, Ḡ = its complement (as always). Conflict track:
+  // the pipeline is fed F̄ (see computeActiveMis), so *it* plays "G" — its
+  // clique is MIS(F) — and its complement is F itself, which is what Stage 3
+  // embeds. So the right-hand ("Ḡ" role) panel is F: the actual conflict
+  // graph, with the highlighted independent set showing literally zero
+  // conflicts among the chosen links — the intuitive "this is the answer"
+  // view. The left ("G" role) panel is F̄, the dual clique view.
+  const gLabel = isConflict ? "F̄" : "G";
+  const gbarLabel = isConflict ? "F" : "Ḡ";
 
   return (
     <motion.div
@@ -178,16 +245,36 @@ export function Stage2_Complement() {
       transition={{ duration: 0.4 }}
       style={{ display: "grid", gap: 16 }}
     >
-      {stale && (
+      <TrackToggle track={track} onChange={setTrack} />
+
+      {isConflict && (
+        <ConflictGraphIntro
+          manetGraph={manet.graph}
+          interferenceRadius={interferenceRadius}
+          onInterferenceRadiusChange={setInterferenceRadius}
+          conflictGraph={conflictGraph}
+          linkLabel={linkLabel}
+        />
+      )}
+
+      {misStale && (
         <StaleBanner
-          upstreamLabel="הגרף ב-MANET (שלב 1)"
+          upstreamLabel={isConflict ? "הגרף ב-MANET או טווח ההפרעה (שלב 1)" : "הגרף ב-MANET (שלב 1)"}
           actionLabel="חשב MIS מחדש"
-          onAction={computeComplement}
+          onAction={computeActiveMis}
         />
       )}
       <Panel
-        title="שלב 2 · קליק → MIS על הגרף המשלים"
-        subtitle="זהות:  S קליק ב-G  ⇔  S קבוצה בלתי-תלויה ב-Ḡ. לחץ על קודקוד כדי לראות את השכנים שלו בשני הגרפים."
+        title={
+          isConflict
+            ? "שלב 2 · Conflict Graph → MIS"
+            : "שלב 2 · קליק → MIS על הגרף המשלים"
+        }
+        subtitle={
+          isConflict
+            ? "MIS(F) = הקבוצה המקסימלית של קישורים שיכולים לשדר בו-זמנית בלי הפרעה הדדית (Theorem 2, Jain et al. MobiCom'03). זהו time-slot אחד — לא פתרון הניתוב המלא. לחץ על קישור כדי לראות עם אילו קישורים אחרים הוא מתנגש."
+            : "זהות:  S קליק ב-G  ⇔  S קבוצה בלתי-תלויה ב-Ḡ. לחץ על קודקוד כדי לראות את השכנים שלו בשני הגרפים."
+        }
         right={
           mis ? (
             <div
@@ -337,80 +424,94 @@ export function Stage2_Complement() {
         >
           <div>
             <GraphColumnStats
-              label="G"
-              labelHint="MANET המקורי"
+              label={gLabel}
+              labelHint={isConflict ? "גרף התאימות (complement of F)" : "MANET המקורי"}
               accent={palette.queraPurpleGlow}
               stats={gStats}
               extra={[
-                ["ω(G)", `${mis?.size ?? "—"}`],
-                ["α(G)", alphaText(mis?.alpha_g)],
-                ["χ(G)", chiText(mis?.chromatic_lower, mis?.chromatic_upper)],
+                [`ω(${gLabel})`, `${mis?.size ?? "—"}`],
+                [`α(${gLabel})`, alphaText(mis?.alpha_g)],
+                [`χ(${gLabel})`, chiText(mis?.chromatic_lower, mis?.chromatic_upper)],
                 ["#max-cliques", `${mis?.n_max_cliques ?? "—"}`],
               ]}
             />
             <div style={{ margin: "10px 0 8px", color: palette.textSecondary, fontSize: 13 }}>
-              <strong style={{ color: palette.textPrimary }}>G</strong> — הגרף המקורי (רשת MANET)
+              <strong style={{ color: palette.textPrimary }}>{gLabel}</strong>{" "}
+              {isConflict
+                ? "— גרף התאימות: קשת = שני קישורים שיכולים לפעול יחד בלי קונפליקט (המשלים של F)"
+                : "— הגרף המקורי (רשת MANET)"}
               <br />
               <span style={{ fontSize: 11, color: palette.textMuted }}>
                 {selectedNode === null
-                  ? "קודקודים זוהרים = קליק מקסימלי. קשתות זוהרות = שייכות לקליק."
-                  : `קודקוד ${selectedNode} נבחר — קשתות צהובות = השכנים שלו ב-G.`}
+                  ? isConflict
+                    ? "קישורים זוהרים = קבוצת קישורים תואמים הדדית (קליק ב-F̄) — בדיוק MIS(F). קשתות זוהרות = תאימות בין קישורים בקבוצה."
+                    : "קודקודים זוהרים = קליק מקסימלי. קשתות זוהרות = שייכות לקליק."
+                  : isConflict
+                    ? `קישור ${linkLabel?.(selectedNode) ?? selectedNode} נבחר — קשתות צהובות = הקישורים התואמים לו (לא מתנגשים) ב-F̄.`
+                    : `קודקוד ${selectedNode} נבחר — קשתות צהובות = השכנים שלו ב-G.`}
               </span>
             </div>
             <GraphView
-              graph={manet.graph}
+              graph={activeGraph}
               mode="geometric"
               highlight={cliqueSet}
               highlightColor={activeColor}
               emphasizeHighlightedEdges
-              caption="G  (MANET)"
+              caption={isConflict ? "F̄  (compatibility graph)" : "G  (MANET)"}
               width={680}
               height={500}
               selectedNode={selectedNode}
               onNodeClick={handleNodeClick}
               showDegrees={showDegrees}
+              nodeLabel={linkLabel}
             />
           </div>
 
           <div>
             {gbarStats && (
               <GraphColumnStats
-                label="Ḡ"
-                labelHint="הגרף המשלים"
+                label={gbarLabel}
+                labelHint={isConflict ? "גרף הקונפליקטים המקורי (F)" : "הגרף המשלים"}
                 accent={palette.queraPurpleSoft}
                 stats={gbarStats}
                 extra={[
-                  ["α(Ḡ)", `${mis?.size ?? "—"}`],
-                  ["ω(Ḡ)", alphaText(mis?.alpha_g)],
+                  [`α(${gbarLabel})`, `${mis?.size ?? "—"}`],
+                  [`ω(${gbarLabel})`, alphaText(mis?.alpha_g)],
                   ["embedding", embeddingHint(gbarStats.density)],
                   ["UDG check", "Stage 3 →"],
                 ]}
               />
             )}
             <div style={{ margin: "10px 0 8px", color: palette.textSecondary, fontSize: 13 }}>
-              <strong style={{ color: palette.textPrimary }}>Ḡ</strong> — הגרף המשלים
+              <strong style={{ color: palette.textPrimary }}>{gbarLabel}</strong>{" "}
+              {isConflict ? "— גרף הקונפליקטים עצמו (זהה לפאנל השני בשלב 'בניית גרף הקונפליקטים')" : "— הגרף המשלים"}
               <br />
               <span style={{ fontSize: 11, color: palette.textMuted }}>
                 {selectedNode === null
-                  ? "אותם מיקומים, רק הקשתות התהפכו. קודקודים זוהרים = MIS מקסימלי — אין אף קשת ביניהם."
-                  : `קודקוד ${selectedNode} נבחר — קשתות צהובות = השכנים שלו ב-Ḡ (אלה שלא היו שכנים ב-G).`}
+                  ? isConflict
+                    ? "קודקודים זוהרים = MIS(F) — קבוצת הקישורים המקסימלית שיכולה לשדר בו-זמנית. שימו לב: אין אף קשת ביניהם — בדיוק המשמעות של 'ללא הפרעה הדדית'."
+                    : "אותם מיקומים, רק הקשתות התהפכו. קודקודים זוהרים = MIS מקסימלי — אין אף קשת ביניהם."
+                  : isConflict
+                    ? `קישור ${linkLabel?.(selectedNode) ?? selectedNode} נבחר — קשתות צהובות = הקישורים שמתנגשים איתו ב-F.`
+                    : `קודקוד ${selectedNode} נבחר — קשתות צהובות = השכנים שלו ב-Ḡ (אלה שלא היו שכנים ב-G).`}
               </span>
             </div>
             {mis && (
               <GraphView
                 graph={{
                   ...mis.complement,
-                  node_positions: manet.graph.node_positions,
+                  node_positions: activeGraph.node_positions,
                 }}
                 mode="geometric"
                 highlight={cliqueSet}
                 highlightColor={activeColor}
-                caption="Ḡ  (complement)"
+                caption={isConflict ? "F  (conflict graph)" : "Ḡ  (complement)"}
                 width={680}
                 height={500}
                 selectedNode={selectedNode}
                 onNodeClick={handleNodeClick}
                 showDegrees={showDegrees}
+                nodeLabel={linkLabel}
               />
             )}
           </div>
@@ -419,6 +520,16 @@ export function Stage2_Complement() {
         {selectedNode !== null && (
           <NodeDetailCard
             nodeId={selectedNode}
+            nodeLabel={linkLabel?.(selectedNode) ?? String(selectedNode)}
+            subjectLabel={isConflict ? "קישור" : "קודקוד"}
+            leftTitle={isConflict ? `תואמים ב-${gLabel}` : `שכנים ב-${gLabel}`}
+            leftHint={isConflict ? "קישורים שיכולים לשדר יחד עם זה בלי קונפליקט" : "זוגות שמתקשרים ישירות ב-MANET"}
+            rightTitle={isConflict ? `מתנגשים ב-${gbarLabel}` : `שכנים ב-${gbarLabel}`}
+            rightHint={
+              isConflict
+                ? "קישורים אחרים שלא יכולים לשדר בו-זמנית עם זה"
+                : `הזוגות החסרים ב-${gLabel} — אלה שיש ביניהם blockade באטומים`
+            }
             neighborsInG={neighborsInG}
             neighborsInComplement={neighborsInComplement}
             cliqueMemberships={cliqueMemberships}
@@ -439,20 +550,42 @@ export function Stage2_Complement() {
 
       <Panel
         title="הסבר מתמטי"
-        subtitle="למה ה-MIS על Ḡ הוא הקליק על G"
+        subtitle={
+          isConflict
+            ? "למה MIS על F פותר תזמון בו-זמני של קישורים"
+            : "למה ה-MIS על Ḡ הוא הקליק על G"
+        }
         collapsible
         collapseGroup="explanations"
       >
-        <p style={{ margin: "0 0 12px", color: palette.textSecondary, lineHeight: 1.7 }}>
-          הגדרה: בגרף משלים <span dir="ltr" className="mono">Ḡ = (V, V×V \ E)</span> — אותם
-          קודקודים, אבל הקשתות הפוכות. תת-קבוצה <span dir="ltr" className="mono">S ⊆ V</span> היא{" "}
-          <strong>קליק ב-G</strong> אם כל זוג ב-S מחובר ב-G. שני קודקודים מחוברים ב-G אם ורק אם הם{" "}
-          <em>לא</em> מחוברים ב-Ḡ — לכן S קליק ב-G אם ורק אם S{" "}
-          <strong>קבוצה בלתי-תלויה</strong> ב-Ḡ. מכאן{" "}
-          <span dir="ltr" className="mono">ω(G) = α(Ḡ)</span>. החשיבות החומרית: על Aquila ה-Rydberg
-          blockade אוכף בדיוק את אילוץ ה-MIS — שני אטומים שמרחקם קטן מ-R_b אינם יכולים להיות שניהם
-          במצב Rydberg. אם נקודד כל קודקוד של Ḡ כאטום, נקבל מימוש פיזיקלי ישיר לבעיה.
-        </p>
+        {isConflict ? (
+          <p style={{ margin: "0 0 12px", color: palette.textSecondary, lineHeight: 1.7 }}>
+            הגדרה (Jain, Padhye, Padmanabhan &amp; Qiu, MobiCom'03): גרף הקונפליקטים{" "}
+            <span dir="ltr" className="mono">F</span> נבנה על <em>קישורי</em> ה-MANET — כל קודקוד
+            ב-F הוא קישור (u,v) ב-MANET, וקשת בין שני קודקודי F קיימת כשהקישורים המתאימים לא יכולים
+            לשדר בו-זמנית (חולקים צומת, או שאחד הקצוות שלהם קרוב לשני מטווח ההפרעה R'). המשפט
+            המרכזי (Theorem 2): וקטור שימוש הוא בר-תזמון (schedulable, ללא התנגשות) <em>אם ורק אם</em>{" "}
+            הוא נמצא בתוך ה-independent-set polytope של F — ולכן{" "}
+            <strong>MIS(F) = קבוצת הקישורים המקסימלית שיכולה לשדר בו-זמנית</strong>. זהו time-slot
+            אחד בלבד; הפתרון המלא לניתוב משלב כמה MIS-ים כאלה עם LP של multi-commodity flow. באפליקציה:
+            כדי לקבל את MIS(F) מאותה מכונת complement/MIS ששלב זה כבר מפעיל, מזינים אותה{" "}
+            <span dir="ltr" className="mono">F̄</span> (המשלים של F) — אז ה-clique שהיא מוצאת הוא{" "}
+            <span dir="ltr" className="mono">clique(F̄) = MIS(F)</span>, וה-complement שהיא מחזירה הוא F
+            עצמו. החשיבות החומרית זהה למסלול הישיר: מקדדים כל קודקוד של F כאטום, וה-Rydberg blockade
+            אוכף את אילוץ ה-MIS ישירות בחומרה.
+          </p>
+        ) : (
+          <p style={{ margin: "0 0 12px", color: palette.textSecondary, lineHeight: 1.7 }}>
+            הגדרה: בגרף משלים <span dir="ltr" className="mono">Ḡ = (V, V×V \ E)</span> — אותם
+            קודקודים, אבל הקשתות הפוכות. תת-קבוצה <span dir="ltr" className="mono">S ⊆ V</span> היא{" "}
+            <strong>קליק ב-G</strong> אם כל זוג ב-S מחובר ב-G. שני קודקודים מחוברים ב-G אם ורק אם הם{" "}
+            <em>לא</em> מחוברים ב-Ḡ — לכן S קליק ב-G אם ורק אם S{" "}
+            <strong>קבוצה בלתי-תלויה</strong> ב-Ḡ. מכאן{" "}
+            <span dir="ltr" className="mono">ω(G) = α(Ḡ)</span>. החשיבות החומרית: על Aquila ה-Rydberg
+            blockade אוכף בדיוק את אילוץ ה-MIS — שני אטומים שמרחקם קטן מ-R_b אינם יכולים להיות שניהם
+            במצב Rydberg. אם נקודד כל קודקוד של Ḡ כאטום, נקבל מימוש פיזיקלי ישיר לבעיה.
+          </p>
+        )}
         {mis && (
           <div
             style={{
@@ -465,8 +598,8 @@ export function Stage2_Complement() {
             }}
             dir="ltr"
           >
-            MaxClique(G) = MIS(Ḡ) = {"{ "}
-            {activeClique.join(", ")}
+            {isConflict ? "MaxClique(F̄) = MIS(F)" : "MaxClique(G) = MIS(Ḡ)"} = {"{ "}
+            {activeClique.map((v) => linkLabel?.(v) ?? v).join(", ")}
             {" }"} · size = {activeClique.length}
             {mis.n_max_cliques > 1 && (
               <span style={{ color: palette.textMuted }}>
@@ -477,6 +610,210 @@ export function Stage2_Complement() {
         )}
       </Panel>
     </motion.div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Track toggle — switches Stage 2 between the direct and conflict-graph
+// methods. A segmented control matching the app's existing button language
+// (palette.queraPurple active state, same radius/weight as StageStepper).
+// --------------------------------------------------------------------------- //
+
+function TrackToggle({
+  track,
+  onChange,
+}: {
+  track: MisTrack;
+  onChange: (t: MisTrack) => void;
+}) {
+  const options: { id: MisTrack; label: string; hint: string }[] = [
+    {
+      id: "direct",
+      label: "MIS ישיר · Complement",
+      hint: "קליק ↔ MIS על הגרף המשלים",
+    },
+    {
+      id: "conflict",
+      label: "Conflict Graph · הפרעה",
+      hint: "MIS על גרף הקונפליקטים (Jain et al., 2003)",
+    },
+  ];
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 4,
+        padding: 4,
+        background: palette.bgInset,
+        borderRadius: 10,
+        border: `1px solid ${palette.queraPurpleSoft}`,
+        width: "fit-content",
+      }}
+      dir="rtl"
+    >
+      {options.map((opt) => {
+        const active = track === opt.id;
+        return (
+          <button
+            key={opt.id}
+            onClick={() => onChange(opt.id)}
+            title={opt.hint}
+            style={{
+              padding: "8px 16px",
+              border: "none",
+              borderRadius: 7,
+              background: active ? palette.queraPurple : "transparent",
+              color: active ? "#fff" : palette.textSecondary,
+              fontWeight: active ? 600 : 400,
+              fontSize: 13,
+              cursor: "pointer",
+              transition: "all 160ms ease",
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Conflict-graph intro — shown only on the conflict track, before the main
+// complement/MIS panel. Builds intuition for F itself: connectivity graph C
+// (links) vs. the conflict graph F derived from it, plus the interference
+// radius control (Jain et al. §3.1 — R' can exceed the comm radius R).
+// --------------------------------------------------------------------------- //
+
+function ConflictGraphIntro({
+  manetGraph,
+  interferenceRadius,
+  onInterferenceRadiusChange,
+  conflictGraph,
+  linkLabel,
+}: {
+  manetGraph: GraphDTO;
+  interferenceRadius: number;
+  onInterferenceRadiusChange: (r: number) => void;
+  conflictGraph: ConflictGraphResponse | null;
+  linkLabel?: (id: number) => string;
+}) {
+  const cStats = computeGraphStats(manetGraph.n_nodes, manetGraph.edges);
+  const fStats = conflictGraph
+    ? computeGraphStats(conflictGraph.conflict_graph.n_nodes, conflictGraph.conflict_graph.edges)
+    : null;
+
+  return (
+    <Panel
+      title="שלב 2 · בניית גרף הקונפליקטים (Interference)"
+      subtitle="כל קישור ב-MANET הופך לקודקוד ב-F. שני קישורים מתנגשים (קשת ב-F) אם הם חולקים צומת, או אם קצה של אחד קרוב לקצה של השני מטווח ההפרעה R'."
+      collapsible
+      collapseGroup="conflict-intro"
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          marginBottom: 14,
+          padding: "10px 14px",
+          background: palette.bgInset,
+          borderRadius: 8,
+          fontSize: 12,
+          color: palette.textSecondary,
+        }}
+      >
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontWeight: 600, color: palette.textPrimary }}>
+            טווח הפרעה R'
+          </span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={interferenceRadius}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (Number.isFinite(v) && v > 0) onInterferenceRadiusChange(v);
+            }}
+            style={{
+              width: 80,
+              padding: "4px 8px",
+              borderRadius: 6,
+              border: `1px solid ${palette.queraPurpleSoft}`,
+              background: palette.bgPanel,
+              color: palette.textPrimary,
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+            }}
+            dir="ltr"
+          />
+        </label>
+        <span style={{ color: palette.textMuted, fontSize: 11 }}>
+          ברירת מחדל = טווח התקשורת R של MANET (שלב 1). R' &gt; R מרחיב את טווח ההפרעה מעבר לטווח
+          השידור — בדיוק הנקודה של Jain et al. §3.1.
+        </span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div>
+          <GraphColumnStats
+            label="C"
+            labelHint="connectivity graph (MANET)"
+            accent={palette.queraPurpleGlow}
+            stats={cStats}
+            extra={[
+              ["devices", `${cStats.n}`],
+              ["links", `${cStats.m}`],
+              ["R'", `${interferenceRadius}`],
+              ["", ""],
+            ]}
+          />
+          <div style={{ margin: "10px 0 8px", fontSize: 11, color: palette.textMuted }}>
+            כל צומת = מכשיר MANET; כל קשת = קישור (link) — זהו הקלט לבניית F.
+          </div>
+          <GraphView
+            graph={manetGraph}
+            mode="geometric"
+            caption="C  (connectivity graph)"
+            width={680}
+            height={420}
+          />
+        </div>
+        <div>
+          {fStats ? (
+            <GraphColumnStats
+              label="F"
+              labelHint="conflict graph"
+              accent={palette.queraPurpleSoft}
+              stats={fStats}
+              extra={[
+                ["links → vertices", `${fStats.n}`],
+                ["conflicts", `${fStats.m}`],
+                ["density", fStats.density.toFixed(2)],
+                ["", ""],
+              ]}
+            />
+          ) : (
+            <div style={{ color: palette.textMuted, fontSize: 12 }}>מחשב את F…</div>
+          )}
+          <div style={{ margin: "10px 0 8px", fontSize: 11, color: palette.textMuted }}>
+            כל קודקוד F = קישור ב-C (מסומן "i–j"), ממוקם באמצע הקישור. קשת = קונפליקט בין שני
+            קישורים.
+          </div>
+          {conflictGraph && (
+            <GraphView
+              graph={conflictGraph.conflict_graph}
+              mode="geometric"
+              caption="F  (conflict graph)"
+              width={680}
+              height={420}
+              nodeLabel={linkLabel}
+            />
+          )}
+        </div>
+      </div>
+    </Panel>
   );
 }
 
@@ -628,6 +965,12 @@ function embeddingHint(density: number): string {
 
 function NodeDetailCard({
   nodeId,
+  nodeLabel,
+  subjectLabel = "קודקוד",
+  leftTitle = "שכנים ב-G",
+  leftHint = "זוגות שמתקשרים ישירות ב-MANET",
+  rightTitle = "שכנים ב-Ḡ",
+  rightHint = "הזוגות החסרים ב-G — אלה שיש ביניהם blockade באטומים",
   neighborsInG,
   neighborsInComplement,
   cliqueMemberships,
@@ -635,6 +978,15 @@ function NodeDetailCard({
   palette: cliquePalette,
 }: {
   nodeId: number;
+  /** Display label for the header badge/title — defaults to the bare id.
+   *  On the conflict track this is the "i–j" link label instead. */
+  nodeLabel?: string;
+  /** "קודקוד" for the direct track, "קישור" for the conflict track. */
+  subjectLabel?: string;
+  leftTitle?: string;
+  leftHint?: string;
+  rightTitle?: string;
+  rightHint?: string;
   neighborsInG: Set<number>;
   neighborsInComplement: Set<number>;
   cliqueMemberships: boolean[];
@@ -684,15 +1036,13 @@ function NodeDetailCard({
             boxShadow: `0 0 12px ${palette.warn}77`,
           }}
         >
-          {nodeId}
+          {nodeLabel ?? nodeId}
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ color: palette.textPrimary, fontWeight: 600, fontSize: 13 }}>
-            פירוט קודקוד #{nodeId}
+            פירוט {subjectLabel} #{nodeLabel ?? nodeId}
           </div>
-          <div style={{ color: palette.textMuted, fontSize: 11 }}>
-            מבט דו-צדדי על שכנויות ב-G ↔ Ḡ
-          </div>
+          <div style={{ color: palette.textMuted, fontSize: 11 }}>{leftTitle} ↔ {rightTitle}</div>
         </div>
         <CliqueMembershipBadge
           inCount={inCount}
@@ -725,31 +1075,29 @@ function NodeDetailCard({
           }}
         >
           <DegreeStat
-            label="דרגה ב-G"
+            label={leftTitle}
             value={neighborsInG.size}
             color={palette.queraPurpleGlow}
             barTotal={Math.max(neighborsInG.size, neighborsInComplement.size, 1)}
           />
           <DegreeStat
-            label="דרגה ב-Ḡ"
+            label={rightTitle}
             value={neighborsInComplement.size}
             color={palette.queraPurpleSoft}
             barTotal={Math.max(neighborsInG.size, neighborsInComplement.size, 1)}
           />
         </div>
 
-        {/* Neighbours in G */}
         <NeighbourSection
-          title="שכנים ב-G"
-          hint="זוגות שמתקשרים ישירות ב-MANET"
+          title={leftTitle}
+          hint={leftHint}
           accent={palette.queraPurpleGlow}
           neighbours={neighborsInG}
         />
 
-        {/* Neighbours in Ḡ */}
         <NeighbourSection
-          title="שכנים ב-Ḡ"
-          hint="הזוגות החסרים ב-G — אלה שיש ביניהם blockade באטומים"
+          title={rightTitle}
+          hint={rightHint}
           accent={palette.warn}
           neighbours={neighborsInComplement}
         />

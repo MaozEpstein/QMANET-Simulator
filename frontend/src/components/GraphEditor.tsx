@@ -26,7 +26,7 @@ const COMM_RADIUS_MAX = 60;
 const CANVAS_W = 1300;
 const CANVAS_H = 674;
 const PADDING_PX = 24;
-const NODE_RADIUS_PX = 8;
+const NODE_RADIUS_PX = 9;
 const EDGE_HITBOX_PX = 6;
 const DEFAULT_GRID_STEP = 10;
 const GRID_STEP_MIN = 1;
@@ -1200,11 +1200,15 @@ function NodesLayer({
             />
             <text
               x={px}
-              y={py + 3}
+              y={py + 4}
               textAnchor="middle"
-              fontSize={9}
+              fontSize={11}
+              fontWeight={700}
               fontFamily="JetBrains Mono, monospace"
               fill="#fff"
+              stroke={palette.bgInset}
+              strokeWidth={3}
+              paintOrder="stroke"
               pointerEvents="none"
             >
               {n.id}

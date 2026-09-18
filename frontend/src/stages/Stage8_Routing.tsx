@@ -14,7 +14,7 @@ const VIA_LABEL: Record<RouteVia, string> = {
 };
 
 export function Stage8_Routing() {
-  const { manet, mis, postProcess } = usePipeline();
+  const { manet, mis, postProcess, track } = usePipeline();
   const [routing, setRouting] = useState<RoutingResponse | null>(null);
   const [src, setSrc] = useState<number | undefined>(undefined);
   const [dst, setDst] = useState<number | undefined>(undefined);
@@ -37,7 +37,9 @@ export function Stage8_Routing() {
       : (mis?.max_clique_in_G ?? []);
 
   const compute = useCallback(async () => {
-    if (!manet || backbone.length === 0) return;
+    // Conflict-track MIS indices are links, not node ids — see the guard
+    // panel below; routing on them would be meaningless.
+    if (!manet || backbone.length === 0 || track === "conflict") return;
     setLoading(true);
     setErr(null);
     try {
@@ -56,12 +58,12 @@ export function Stage8_Routing() {
     } finally {
       setLoading(false);
     }
-  }, [manet, backbone]);
+  }, [manet, backbone, track]);
 
   useEffect(() => {
     compute();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manet?.graph.n_nodes, mis?.size, postProcess?.bestSize, postProcess?.bestBitstring]);
+  }, [manet?.graph.n_nodes, mis?.size, postProcess?.bestSize, postProcess?.bestBitstring, track]);
 
   const activeRoute: RouteDTO | undefined = useMemo(() => {
     if (!routing || src === undefined || dst === undefined || src === dst) return undefined;
@@ -72,6 +74,24 @@ export function Stage8_Routing() {
     return (
       <Panel title="שלב 8 · ניתוב MANET">
         <div style={{ color: palette.textSecondary }}>השלם תחילה את שלב 1 (רשת MANET).</div>
+      </Panel>
+    );
+  }
+  if (track === "conflict") {
+    // Under the conflict track, `mis`/`postProcess` describe a set of MANET
+    // *links* (a schedulable-in-parallel set — see Stage 2's math panel),
+    // not a set of MANET nodes. Feeding those indices into the routing
+    // backbone below would be a category error (wrong entity, coincidentally
+    // in-range indices), so we surface an explanation instead of a bogus
+    // routing table. Re-run Stage 2 on the direct track to use Stage 8.
+    return (
+      <Panel title="שלב 8 · ניתוב MANET">
+        <div style={{ color: palette.textSecondary, lineHeight: 1.7 }}>
+          שלב 8 מפרש את ה-MIS כקבוצת <strong>צמתי backbone</strong> ברשת ה-MANET. במסלול{" "}
+          <strong>Conflict Graph</strong> שנבחר בשלב 2, ה-MIS הוא קבוצת <strong>קישורים</strong>{" "}
+          שיכולים לשדר בו-זמנית — פרשנות שונה (תזמון, לא ניתוב), שלא מומשה בשלב זה. עברו למסלול
+          "MIS ישיר · Complement" בשלב 2 כדי להמשיך לניתוב.
+        </div>
       </Panel>
     );
   }

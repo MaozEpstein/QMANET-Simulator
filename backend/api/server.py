@@ -11,6 +11,7 @@ Endpoints will be filled in over phases 1-7. This stub exposes:
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
@@ -29,6 +30,8 @@ from api.models import (
     BraketSubmitRequest,
     BraketSubmitResponse,
     ComplementRequest,
+    ConflictGraphRequest,
+    ConflictGraphResponse,
     CostEstimateDTO,
     EmbedRecomputeRequest,
     EmbedRequest,
@@ -74,6 +77,7 @@ from api.models import (
 )
 from pipeline import clique_to_mis as cqm
 from pipeline import manet as manet_mod
+from pipeline.conflict_graph import build_conflict_graph
 from pipeline.adiabatic_gap import GAP_MAX_ATOMS, compute_min_gap, compute_spectrum
 from pipeline.phase_diagram import PHASE_DIAGRAM_MAX_ATOMS, compute_phase_diagram
 from pipeline.classical_sa import SAConfig, simulated_annealing
@@ -105,10 +109,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Vite dev server origin; tighten in production.
+# Vite dev-server origins always allowed (local development); the deployed
+# frontend's origin(s) are added via the FRONTEND_ORIGIN env var — a single
+# URL or a comma-separated list (e.g. a production domain plus preview
+# deployments), set on the hosting platform (e.g. Render's dashboard).
+# No wildcard "*": allow_credentials=True forbids it per the CORS spec, and
+# the app doesn't need it — every legitimate origin is known ahead of time.
+_DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_extra_origins = [o.strip() for o in os.environ.get("FRONTEND_ORIGIN", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_DEV_ORIGINS + _extra_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -219,6 +231,29 @@ def graph_complement(req: ComplementRequest) -> MISResponse:
         alpha_g=alpha_g,
         chromatic_lower=chrom_lo,
         chromatic_upper=chrom_hi,
+    )
+
+
+@app.post("/api/graph/conflict", response_model=ConflictGraphResponse)
+def graph_conflict(req: ConflictGraphRequest) -> ConflictGraphResponse:
+    """
+    Build the interference conflict graph F over the links of ``req.graph``
+    (Jain, Padhye, Padmanabhan & Qiu, MobiCom 2003 — see
+    ``pipeline.conflict_graph`` for the construction rule).
+
+    F is a plain ``GraphDTO`` like any other, so the caller feeds it straight
+    into ``/api/graph/complement`` to run the same complement+MIS machinery
+    Stage 2 already uses for the direct track.
+    """
+    g = _dto_to_graph(req.graph)
+    try:
+        result = build_conflict_graph(g, req.interference_radius)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return ConflictGraphResponse(
+        conflict_graph=_graph_to_dto(result.conflict_graph),
+        conflict_graph_complement=_graph_to_dto(result.conflict_graph_complement),
+        link_endpoints=result.link_endpoints,
     )
 
 

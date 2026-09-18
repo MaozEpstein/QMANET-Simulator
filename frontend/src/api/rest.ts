@@ -1,5 +1,7 @@
 /** Typed fetch wrappers around the FastAPI backend. */
 
+import { API_BASE } from "./config";
+
 export interface AquilaSpec {
   max_qubits: number;
   max_width_um: number;
@@ -13,8 +15,6 @@ export interface AquilaSpec {
   c6_rad_us_um6: number;
   noise: Record<string, number>;
 }
-
-const API_BASE = "";
 
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
@@ -67,6 +67,20 @@ export interface MISResponse {
   alpha_g: number;
   chromatic_lower: number;
   chromatic_upper: number;
+}
+
+export interface ConflictGraphRequest {
+  graph: GraphDTO;
+  interference_radius: number;
+}
+
+export interface ConflictGraphResponse {
+  conflict_graph: GraphDTO;
+  /** Feed *this* (not conflict_graph) into api.complement() to get MIS(F)
+   * out of the existing pipeline — see the backend doc comment for why. */
+  conflict_graph_complement: GraphDTO;
+  /** link_endpoints[k] = (i, j) — the input-graph edge conflict_graph's vertex k represents. */
+  link_endpoints: [number, number][];
 }
 
 // --------------------------------------------------------------------------- //
@@ -436,6 +450,11 @@ export const api = {
     postJSON<MANETRequest, MANETResponse>("/api/manet/generate", req),
   complement: (graph: GraphDTO) =>
     postJSON<{ graph: GraphDTO }, MISResponse>("/api/graph/complement", { graph }),
+  conflictGraph: (graph: GraphDTO, interference_radius: number) =>
+    postJSON<ConflictGraphRequest, ConflictGraphResponse>("/api/graph/conflict", {
+      graph,
+      interference_radius,
+    }),
   embed: (req: EmbedRequest) => postJSON<EmbedRequest, EmbedResponse>("/api/embed/atoms", req),
   embedRecompute: (req: EmbedRecomputeRequest) =>
     postJSON<EmbedRecomputeRequest, EmbedResponse>("/api/embed/recompute", req),

@@ -44,6 +44,13 @@ interface Props {
    */
   showDegrees?: boolean;
   degreeEdges?: readonly (readonly [number, number])[];
+  /**
+   * Override the id label drawn inside each node circle. Used by the
+   * conflict-graph track (Stage 2) to show a vertex's underlying MANET link
+   * as "i–j" instead of an arbitrary index — a conflict-graph vertex *is* a
+   * link, so it should read as one. Defaults to the bare numeric id.
+   */
+  nodeLabel?: (id: number) => string;
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -74,6 +81,7 @@ export function GraphView({
   showStatsBadge = false,
   showDegrees = false,
   degreeEdges,
+  nodeLabel,
 }: Props) {
   const hiColor = highlightColor ?? palette.highlight;
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -229,9 +237,10 @@ export function GraphView({
       .attr("stroke-opacity", 0.9)
       .attr("pointer-events", "none");
 
+    const baseR = 7;
     nodeSel
       .append("circle")
-      .attr("r", (d) => (isSelected(d.id) ? 11 : isHighlighted(d.id) ? 10 : 7))
+      .attr("r", (d) => (isSelected(d.id) ? baseR + 4 : isHighlighted(d.id) ? baseR + 3 : baseR))
       .attr("fill", (d) =>
         isSelected(d.id) ? palette.warn : isHighlighted(d.id) ? hiColor : palette.atomGround,
       )
@@ -250,18 +259,51 @@ export function GraphView({
         if (onNodeClick) onNodeClick(d.id);
       });
 
-    nodeSel
-      .append("text")
-      .text((d) => String(d.id))
-      .attr("text-anchor", "middle")
-      .attr("dy", 4)
-      .attr("font-size", 10)
-      .attr("font-family", "JetBrains Mono, monospace")
-      .attr("fill", "#fff")
-      .attr("opacity", (d) =>
-        hasHighlight && !isHighlighted(d.id) && !isSelected(d.id) ? 0.55 : 1,
-      )
-      .attr("pointer-events", "none");
+    if (nodeLabel) {
+      // A link label like "12–7" doesn't fit inside a 7px-radius node circle
+      // legibly at any font size, so it's drawn *outside* the node instead —
+      // same halo technique as the degree label below, just positioned
+      // under the node so it doesn't collide with it. The circle stays
+      // small and plain; the label carries all the identifying information.
+      nodeSel
+        .append("text")
+        .text((d) => nodeLabel(d.id))
+        .attr("text-anchor", "middle")
+        .attr("dy", 22)
+        .attr("font-size", 11.5)
+        .attr("font-weight", 700)
+        .attr("font-family", "JetBrains Mono, monospace")
+        .attr("fill", "#fff")
+        .attr("stroke", palette.bgInset)
+        .attr("stroke-width", 3.5)
+        .attr("paint-order", "stroke")
+        .attr("opacity", (d) =>
+          hasHighlight && !isHighlighted(d.id) && !isSelected(d.id) ? 0.65 : 1,
+        )
+        .attr("pointer-events", "none");
+    }
+
+    if (!nodeLabel) {
+      // White fill alone reads poorly against the light-cyan default node
+      // color (and against warn/highlight fills too) — the dark stroke halo
+      // keeps the id legible regardless of what's underneath it.
+      nodeSel
+        .append("text")
+        .text((d) => String(d.id))
+        .attr("text-anchor", "middle")
+        .attr("dy", 4)
+        .attr("font-size", 11)
+        .attr("font-weight", 700)
+        .attr("font-family", "JetBrains Mono, monospace")
+        .attr("fill", "#fff")
+        .attr("stroke", palette.bgInset)
+        .attr("stroke-width", 3)
+        .attr("paint-order", "stroke")
+        .attr("opacity", (d) =>
+          hasHighlight && !isHighlighted(d.id) && !isSelected(d.id) ? 0.55 : 1,
+        )
+        .attr("pointer-events", "none");
+    }
 
     if (showDegrees) {
       // Render degree d_i above the node, in queraPurpleGlow with a subtle
@@ -390,6 +432,7 @@ export function GraphView({
     showStatsBadge,
     showDegrees,
     degrees,
+    nodeLabel,
   ]);
 
   return (
