@@ -702,6 +702,9 @@ function ConflictGraphIntro({
   const fStats = conflictGraph
     ? computeGraphStats(conflictGraph.conflict_graph.n_nodes, conflictGraph.conflict_graph.edges)
     : null;
+  // Off by default — the ring overlay is a diagnostic aid, not something
+  // everyone needs to see immediately (same rationale as showDegrees).
+  const [showInterferenceRadius, setShowInterferenceRadius] = useState(false);
 
   return (
     <Panel
@@ -714,6 +717,7 @@ function ConflictGraphIntro({
         style={{
           display: "flex",
           alignItems: "center",
+          flexWrap: "wrap",
           gap: 14,
           marginBottom: 14,
           padding: "10px 14px",
@@ -753,6 +757,20 @@ function ConflictGraphIntro({
           ברירת מחדל = טווח התקשורת R של MANET (שלב 1). R' &gt; R מרחיב את טווח ההפרעה מעבר לטווח
           השידור — בדיוק הנקודה של Jain et al. §3.1.
         </span>
+        <div
+          style={{
+            height: 22,
+            width: 1,
+            background: palette.queraPurpleSoft,
+            opacity: 0.5,
+          }}
+        />
+        <SwitchToggle
+          label="הצג טווח הפרעה"
+          hint="מציג טבעת שקופה ברדיוס R' סביב כל צומת בגרף C — עוזר לראות ויזואלית איזה זוגות קצוות נכנסים לטווח ההפרעה."
+          checked={showInterferenceRadius}
+          onChange={setShowInterferenceRadius}
+        />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -775,6 +793,7 @@ function ConflictGraphIntro({
           <GraphView
             graph={manetGraph}
             mode="geometric"
+            commRadius={showInterferenceRadius ? interferenceRadius : undefined}
             caption="C  (connectivity graph)"
             width={680}
             height={420}

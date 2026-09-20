@@ -87,7 +87,7 @@ describe("GraphEditor", () => {
     const slider = container.querySelector('input[type="range"]') as HTMLInputElement;
     fireEvent.change(slider, { target: { value: "30" } });
 
-    fireEvent.click(screen.getByRole("button", { name: /חבר אוטומטית/ }));
+    fireEvent.click(screen.getByRole("button", { name: /חבר\/נתק אוטומטית/ }));
 
     // Edge lines use palette.textPrimary (#e8ecf5); grid lines use a different
     // color (warm amber #c79b5a) and the transparent hitbox uses "transparent".

@@ -443,10 +443,15 @@ export function GraphEditor({
     setDrag(null);
   }, [drag, flash]);
 
+  // Full RGG sync: wires every pair within commRadius and unwires every
+  // existing edge whose pair has fallen outside it — the graph always ends
+  // up exactly matching what the comm-radius ring shows, in either direction
+  // (renamed from the old add-only "autoConnect" per user request).
   const autoConnect = useCallback(() => {
     const present = new Set(
       edgesRef.current.map(([a, b]) => `${Math.min(a, b)}-${Math.max(a, b)}`),
     );
+    const inRange = new Set<string>();
     const additions: [number, number][] = [];
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
@@ -456,21 +461,55 @@ export function GraphEditor({
           const lo = Math.min(a.id, b.id);
           const hi = Math.max(a.id, b.id);
           const key = `${lo}-${hi}`;
-          if (!present.has(key)) {
-            present.add(key);
-            additions.push([lo, hi]);
-          }
+          inRange.add(key);
+          if (!present.has(key)) additions.push([lo, hi]);
         }
       }
     }
-    if (additions.length === 0) {
-      flash("אין קשתות חדשות להוסיף.");
+    const removals = edgesRef.current.filter(
+      ([a, b]) => !inRange.has(`${Math.min(a, b)}-${Math.max(a, b)}`),
+    );
+    if (additions.length === 0 && removals.length === 0) {
+      flash("הגרף כבר תואם את טווח התקשורת.");
       return;
     }
     pushHistory();
-    setEdges((prev) => [...prev, ...additions]);
-    flash(`נוספו ${additions.length} קשתות.`);
+    setEdges((prev) => {
+      const keep = prev.filter(([a, b]) => inRange.has(`${Math.min(a, b)}-${Math.max(a, b)}`));
+      return [...keep, ...additions];
+    });
+    const parts: string[] = [];
+    if (additions.length > 0) parts.push(`חוברו ${additions.length}`);
+    if (removals.length > 0) parts.push(`נותקו ${removals.length}`);
+    flash(`${parts.join(", ")} קשתות.`);
   }, [nodes, commRadius, flash, pushHistory]);
+
+  // Count of node pairs whose current wiring disagrees with commRadius — the
+  // "ring says X, graph says Y" gap that confused users moving the slider
+  // without pressing "חבר/נתק אוטומטית". Purely a UX hint; does not touch
+  // edges/nodes state.
+  const pendingConnections = useMemo(() => {
+    const present = new Set(
+      edges.map(([a, b]) => `${Math.min(a, b)}-${Math.max(a, b)}`),
+    );
+    const inRange = new Set<string>();
+    let toAdd = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i];
+        const b = nodes[j];
+        if (distance(a.x, a.y, b.x, b.y) <= commRadius) {
+          const key = `${Math.min(a.id, b.id)}-${Math.max(a.id, b.id)}`;
+          inRange.add(key);
+          if (!present.has(key)) toAdd++;
+        }
+      }
+    }
+    const toRemove = edges.filter(
+      ([a, b]) => !inRange.has(`${Math.min(a, b)}-${Math.max(a, b)}`),
+    ).length;
+    return toAdd + toRemove;
+  }, [nodes, edges, commRadius]);
 
   const applyPreset = useCallback(
     (spec: PresetSpec, param: number) => {
@@ -702,6 +741,7 @@ export function GraphEditor({
         snapToGrid={snapToGrid}
         setSnapToGrid={setSnapToGrid}
         onAutoConnect={autoConnect}
+        pendingConnections={pendingConnections}
         onClear={clearAll}
         onSave={tryOpenSave}
         onCancel={onCancel ? handleCancel : undefined}
@@ -1273,6 +1313,7 @@ function SidePanel({
   snapToGrid,
   setSnapToGrid,
   onAutoConnect,
+  pendingConnections,
   onClear,
   onSave,
   onCancel,
@@ -1295,6 +1336,9 @@ function SidePanel({
   snapToGrid: boolean;
   setSnapToGrid: (v: boolean) => void;
   onAutoConnect: () => void;
+  /** Pairs currently within commRadius but not yet wired as an edge — drives
+   *  the "the ring is a preview, click to apply" hint below the slider. */
+  pendingConnections: number;
   onClear: () => void;
   onSave: () => void;
   onCancel?: () => void;
@@ -1392,6 +1436,21 @@ function SidePanel({
           aria-label="טווח תקשורת"
           style={{ width: "100%" }}
         />
+        {pendingConnections > 0 && (
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 11,
+              color: palette.warn,
+              lineHeight: 1.4,
+            }}
+          >
+            ⚠ {pendingConnections} זוג{pendingConnections > 1 ? "ות" : ""} לא תואמ
+            {pendingConnections > 1 ? "ים" : ""} את טווח התקשורת הנוכחי — ההילה היא
+            תצוגה מקדימה בלבד. לחץ &quot;חבר/נתק אוטומטית&quot; כדי לסנכרן את הגרף
+            אליה.
+          </div>
+        )}
       </div>
 
       {setShowDegrees && (
@@ -1470,7 +1529,7 @@ function SidePanel({
       </div>
 
       <button onClick={onAutoConnect} disabled={nNodes < 2} style={secondaryBtn(nNodes < 2)}>
-        חבר אוטומטית (RGG)
+        חבר/נתק אוטומטית (RGG)
       </button>
       <button onClick={onClear} disabled={nNodes === 0 && nEdges === 0} style={secondaryBtn(nNodes === 0 && nEdges === 0)}>
         נקה הכל
