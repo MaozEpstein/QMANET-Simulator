@@ -131,6 +131,10 @@ interface PipelineState {
    *  Gates the auto-sync in setManet — an explicit choice is never
    *  silently overwritten by a later MANET regeneration. */
   interferenceRadiusTouched: boolean;
+  /** Snaps R' back to the current MANET's comm_radius and clears
+   *  `interferenceRadiusTouched`, so future MANET regenerations auto-sync
+   *  R' again. No-op when there's no MANET yet. */
+  resetInterferenceRadius: () => void;
 
   embed: EmbedResponse | null;
   setEmbed: (e: EmbedResponse | null) => void;
@@ -322,6 +326,11 @@ export const usePipeline = create<PipelineState>()(
       interferenceRadius: 35,
       setInterferenceRadius: (r) => set({ interferenceRadius: r, interferenceRadiusTouched: true }),
       interferenceRadiusTouched: false,
+      resetInterferenceRadius: () => {
+        const manet = get().manet;
+        if (!manet) return;
+        set({ interferenceRadius: manet.config.comm_radius, interferenceRadiusTouched: false });
+      },
       embed: null,
       // Changing the embed invalidates all schedule-derived analyses (positions
       // feed every diagonalisation).

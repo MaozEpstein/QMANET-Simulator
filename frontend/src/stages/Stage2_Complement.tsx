@@ -41,6 +41,8 @@ export function Stage2_Complement() {
     setConflictGraph,
     interferenceRadius,
     setInterferenceRadius,
+    interferenceRadiusTouched,
+    resetInterferenceRadius,
   } = usePipeline();
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -311,6 +313,9 @@ export function Stage2_Complement() {
           manetGraph={manet.graph}
           interferenceRadius={interferenceRadius}
           onInterferenceRadiusChange={setInterferenceRadius}
+          commRadius={manet.config.comm_radius}
+          interferenceRadiusTouched={interferenceRadiusTouched}
+          onResetInterferenceRadius={resetInterferenceRadius}
           conflictGraph={conflictGraph}
           linkLabel={linkLabel}
           editTool={editTool}
@@ -847,6 +852,9 @@ function ConflictGraphIntro({
   manetGraph,
   interferenceRadius,
   onInterferenceRadiusChange,
+  commRadius,
+  interferenceRadiusTouched,
+  onResetInterferenceRadius,
   conflictGraph,
   linkLabel,
   editTool,
@@ -859,6 +867,10 @@ function ConflictGraphIntro({
   manetGraph: GraphDTO;
   interferenceRadius: number;
   onInterferenceRadiusChange: (r: number) => void;
+  /** MANET's comm_radius (R) — the reset button's target value. */
+  commRadius: number;
+  interferenceRadiusTouched: boolean;
+  onResetInterferenceRadius: () => void;
   conflictGraph: ConflictGraphResponse | null;
   linkLabel?: (id: number) => string;
   editTool: ManetEditTool;
@@ -951,6 +963,23 @@ function ConflictGraphIntro({
             }}
             dir="ltr"
           />
+          <button
+            onClick={onResetInterferenceRadius}
+            disabled={!interferenceRadiusTouched}
+            title={`אפס ל-R (טווח התקשורת של MANET) = ${commRadius}`}
+            style={{
+              padding: "3px 8px",
+              borderRadius: 6,
+              border: `1px solid ${palette.queraPurpleSoft}`,
+              background: "transparent",
+              color: interferenceRadiusTouched ? palette.textSecondary : palette.textMuted,
+              fontSize: 11,
+              cursor: interferenceRadiusTouched ? "pointer" : "not-allowed",
+              opacity: interferenceRadiusTouched ? 1 : 0.5,
+            }}
+          >
+            ↺ אפס ל-R
+          </button>
         </label>
         <div
           style={{

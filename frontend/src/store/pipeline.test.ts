@@ -92,6 +92,27 @@ describe("usePipeline store", () => {
     expect(usePipeline.getState().interferenceRadius).toBe(99);
   });
 
+  it("resetInterferenceRadius snaps back to comm_radius and clears the touched flag", () => {
+    const fake = {
+      graph: { n_nodes: 2, edges: [[0, 1] as [number, number]], node_positions: null },
+      config: { n_nodes: 2, box_size: 10, comm_radius: 17, seed: 1 },
+    };
+    usePipeline.getState().setManet(fake);
+    usePipeline.getState().setInterferenceRadius(99);
+    expect(usePipeline.getState().interferenceRadiusTouched).toBe(true);
+
+    usePipeline.getState().resetInterferenceRadius();
+    expect(usePipeline.getState().interferenceRadius).toBe(17);
+    expect(usePipeline.getState().interferenceRadiusTouched).toBe(false);
+  });
+
+  it("resetInterferenceRadius is a no-op without a MANET", () => {
+    usePipeline.setState({ manet: null, interferenceRadius: 99, interferenceRadiusTouched: true });
+    usePipeline.getState().resetInterferenceRadius();
+    expect(usePipeline.getState().interferenceRadius).toBe(99);
+    expect(usePipeline.getState().interferenceRadiusTouched).toBe(true);
+  });
+
   it("setInterferenceRadius marks interferenceRadiusTouched", () => {
     usePipeline.setState({ interferenceRadiusTouched: false });
     usePipeline.getState().setInterferenceRadius(42);
