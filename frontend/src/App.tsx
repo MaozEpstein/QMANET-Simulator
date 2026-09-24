@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type AquilaSpec } from "./api/rest";
 import { StageErrorBoundary } from "./components/StageErrorBoundary";
+import { CompareExamplesButton } from "./components/CompareExamplesButton";
 import { ExamplesButton } from "./components/ExamplesButton";
 import { RunPipelineButton } from "./components/RunPipelineButton";
 import { StagesInfoButton } from "./components/StagesInfoButton";
@@ -165,6 +166,7 @@ function Header() {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <ExamplesButton />
+        <CompareExamplesButton />
         <RunPipelineButton />
         <ResetPipelineButton />
         <div style={{ fontSize: 12, color: palette.textSecondary }} dir="ltr">

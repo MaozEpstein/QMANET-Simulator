@@ -66,7 +66,7 @@ import {
 import { usePipeline } from "../store/pipeline";
 import { palette } from "../theme/palette";
 
-type CategoryId =
+export type CategoryId =
   | "myGraphs"
   | "starter"
   | "conflictGraph"
@@ -86,7 +86,7 @@ const STEP_LABEL: Record<Exclude<LoadingStep, null>, string> = {
 
 const STEP_ORDER: Exclude<LoadingStep, null>[] = ["complement", "embed", "schedule"];
 
-interface Example {
+export interface Example {
   id: string;
   name: string;            // Hebrew/short name shown on the card
   englishName?: string;    // formal name in LTR
@@ -104,7 +104,7 @@ interface Example {
   saved?: SavedGraph;      // present only for entries loaded from localStorage
 }
 
-const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?: string }[] = [
+export const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?: string }[] = [
   {
     id: "myGraphs",
     title: "הגרפים שלי",
@@ -151,7 +151,7 @@ const CATEGORIES: { id: CategoryId; title: string; subtitle: string; emptyHint?:
   },
 ];
 
-const EXAMPLES: Example[] = [
+export const EXAMPLES: Example[] = [
   {
     id: "c4",
     name: "ריבוע (C₄)",
