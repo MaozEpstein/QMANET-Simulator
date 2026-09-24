@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 72">
+  <defs>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <g transform="translate(6,6)">
+    <g stroke="#3ed3ff" stroke-width="1.6" stroke-opacity="0.55" fill="none">
+      <line x1="30" y1="8" x2="14" y2="28"/>
+      <line x1="30" y1="8" x2="46" y2="28"/>
+      <line x1="14" y1="28" x2="30" y2="52"/>
+      <line x1="46" y1="28" x2="30" y2="52"/>
+      <line x1="14" y1="28" x2="46" y2="28"/>
+    </g>
+    <g filter="url(#glow)">
+      <circle cx="30" cy="8" r="5" fill="#b388ff"/>
+      <circle cx="14" cy="28" r="5" fill="#3ed3ff"/>
+      <circle cx="46" cy="28" r="5" fill="#3ed3ff"/>
+      <circle cx="30" cy="52" r="6" fill="#3ddc97"/>
+    </g>
+  </g>
+
+  <text x="76" y="34" font-family="Heebo, sans-serif" font-weight="700" font-size="26" fill="#e8ecf5">Qsimulator</text>
+  <text x="76" y="54" font-family="JetBrains Mono, monospace" font-weight="500" font-size="12" fill="#9aa6bf" letter-spacing="0.5">NEUTRAL-ATOM ROUTING</text>
+</svg>
