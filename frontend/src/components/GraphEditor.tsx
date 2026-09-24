@@ -150,7 +150,9 @@ export function GraphEditor({
     const maxId = nodes.reduce((m, n) => Math.max(m, n.id), -1);
     return computeDegrees(maxId + 1, edges);
   }, [nodes, edges]);
-  const [commRadius, setCommRadius] = useState(DEFAULT_COMM_RADIUS);
+  const [commRadius, setCommRadius] = useState<number>(
+    () => externalValue?.config.comm_radius ?? DEFAULT_COMM_RADIUS,
+  );
   const [showCommRadius, setShowCommRadius] = useState(true);
   const [gridStep, setGridStep] = useState(DEFAULT_GRID_STEP);
   const [showGrid, setShowGrid] = useState(true);
@@ -182,6 +184,8 @@ export function GraphEditor({
   nodesRef.current = nodes;
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
+  const commRadiusRef = useRef(commRadius);
+  commRadiusRef.current = commRadius;
   const historyRef = useRef<{ nodes: NodePos[]; edges: [number, number][] }[]>([]);
 
   const pushHistory = useCallback(() => {
@@ -250,9 +254,17 @@ export function GraphEditor({
     if (!externalValue) return;
     const newPositions = externalValue.graph.node_positions ?? [];
     const newEdges = externalValue.graph.edges;
-    if (graphsEqual(newPositions, nodesRef.current, newEdges, edgesRef.current)) {
-      return;
+    const graphChanged = !graphsEqual(newPositions, nodesRef.current, newEdges, edgesRef.current);
+    // Re-sync commRadius from the store on every external update (not just
+    // when the graph itself changed) — otherwise a remount (e.g. leaving
+    // Stage 1 and coming back) re-reads it correctly on mount, but a value
+    // committed while this instance was already alive would never reach a
+    // *different* mounted instance. Skipped when already equal so this
+    // doesn't fight an in-progress local drag.
+    if (externalValue.config.comm_radius !== commRadiusRef.current) {
+      setCommRadius(externalValue.config.comm_radius);
     }
+    if (!graphChanged) return;
     skipNextCommitRef.current = true;
     setNodes(newPositions);
     setEdges(newEdges);
@@ -563,6 +575,16 @@ export function GraphEditor({
     };
   }, [nodes, edges, commRadius]);
 
+  // Pushes the current commRadius into the parent store. Fired only when a
+  // drag/keypress on the slider *settles* (not on every onChange tick) so
+  // dragging doesn't churn the pipeline — but unlike node/edge edits, this is
+  // the only trigger that ever commits commRadius, so without it a radius
+  // change that isn't followed by another edit would never reach the store
+  // and would be lost on remount (e.g. leaving Stage 1 and coming back).
+  const commitCommRadius = useCallback(() => {
+    onCommit?.(buildPayload());
+  }, [onCommit, buildPayload]);
+
   const tryOpenSave = useCallback(() => {
     const payload = buildPayload();
     const result = validateGraph(payload.graph);
@@ -731,6 +753,7 @@ export function GraphEditor({
         nEdges={edges.length}
         commRadius={commRadius}
         setCommRadius={setCommRadius}
+        onCommitCommRadius={commitCommRadius}
         showCommRadius={showCommRadius}
         setShowCommRadius={setShowCommRadius}
         gridType={gridType}
@@ -1303,6 +1326,7 @@ function SidePanel({
   nEdges,
   commRadius,
   setCommRadius,
+  onCommitCommRadius,
   showCommRadius,
   setShowCommRadius,
   gridType,
@@ -1326,6 +1350,9 @@ function SidePanel({
   nEdges: number;
   commRadius: number;
   setCommRadius: (v: number) => void;
+  /** Commits the current commRadius to the parent store. Call when a
+   *  drag/keypress on the slider settles, not on every onChange tick. */
+  onCommitCommRadius: () => void;
   showCommRadius: boolean;
   setShowCommRadius: (v: boolean) => void;
   gridType: GridType;
@@ -1433,6 +1460,10 @@ function SidePanel({
           step={1}
           value={commRadius}
           onChange={(e) => setCommRadius(Number(e.target.value))}
+          onMouseUp={onCommitCommRadius}
+          onTouchEnd={onCommitCommRadius}
+          onKeyUp={onCommitCommRadius}
+          onBlur={onCommitCommRadius}
           aria-label="טווח תקשורת"
           style={{ width: "100%" }}
         />

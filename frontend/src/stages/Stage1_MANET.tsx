@@ -6,31 +6,14 @@ import { GraphEditor } from "../components/GraphEditor";
 import { ImportButton } from "../components/ImportButton";
 import { Panel } from "../components/Panel";
 import { saveGraph } from "../lib/savedGraphs";
-import { usePipeline } from "../store/pipeline";
+import { usePipeline, useCommitManet } from "../store/pipeline";
 import { palette } from "../theme/palette";
 
 export function Stage1_MANET() {
-  const {
-    manet,
-    setManet,
-    setMIS,
-    setEmbed,
-    setSchedule,
-    resetSimulation,
-  } = usePipeline();
+  const { manet } = usePipeline();
+  const handleCommit = useCommitManet();
 
   const [showDegrees, setShowDegrees] = useState(false);
-
-  const handleCommit = useCallback(
-    (payload: MANETResponse) => {
-      setManet(payload);
-      setMIS(null);
-      setEmbed(null);
-      setSchedule(null);
-      resetSimulation();
-    },
-    [setManet, setMIS, setEmbed, setSchedule, resetSimulation],
-  );
 
   const handleSaveToLibrary = useCallback(
     (payload: MANETResponse, name: string, description: string) => {

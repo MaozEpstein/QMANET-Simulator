@@ -3,10 +3,18 @@ import { motion } from "framer-motion";
 import { api } from "../api/rest";
 import type { ConflictGraphResponse, GraphDTO } from "../api/rest";
 import { GraphView } from "../components/GraphView";
+import { InfoButton } from "../components/InfoButton";
 import { Panel } from "../components/Panel";
-import { selectStaleStages, usePipeline, type MisTrack } from "../store/pipeline";
+import { selectStaleStages, usePipeline, useCommitManet, type MisTrack } from "../store/pipeline";
 import { StaleBanner } from "../components/StaleBanner";
 import { palette } from "../theme/palette";
+import { addManetEdge, deleteManetEdge, deleteManetNode } from "../lib/manetEdit";
+
+/** Which quick-edit tool is active on the "simple" graph panel (G on the
+ * direct track, C on the conflict track) — the only panels backed directly
+ * by the MANET graph, so edits here feed straight back into Stage 1's data
+ * without leaving Stage 2. The derived panels (F, F̄, Ḡ) stay read-only. */
+export type ManetEditTool = "none" | "delete" | "addEdge";
 
 // Distinct colors per clique index — picked so cliques with overlapping
 // vertices read clearly against the dark panel background.
@@ -204,6 +212,56 @@ export function Stage2_Complement() {
     [],
   );
 
+  // Inline editing on the "simple" graph panel — see ManetEditTool doc comment.
+  const commitManet = useCommitManet();
+  const [editTool, setEditTool] = useState<ManetEditTool>("none");
+  const [pendingEdgeStart, setPendingEdgeStart] = useState<number | null>(null);
+  const [editMsg, setEditMsg] = useState<string | null>(null);
+
+  const flashEdit = useCallback((msg: string) => {
+    setEditMsg(msg);
+    setTimeout(() => setEditMsg((m) => (m === msg ? null : m)), 1500);
+  }, []);
+
+  const setEditToolAndReset = useCallback((t: ManetEditTool) => {
+    setEditTool((prev) => (prev === t ? "none" : t));
+    setPendingEdgeStart(null);
+  }, []);
+
+  const handleManetNodeClick = useCallback(
+    (id: number) => {
+      if (!manet) return;
+      if (editTool === "delete") {
+        commitManet(deleteManetNode(manet, id));
+        setPendingEdgeStart(null);
+        return;
+      }
+      if (editTool === "addEdge") {
+        if (pendingEdgeStart === null) {
+          setPendingEdgeStart(id);
+        } else if (pendingEdgeStart === id) {
+          setPendingEdgeStart(null);
+        } else {
+          const next = addManetEdge(manet, pendingEdgeStart, id);
+          if (!next) flashEdit("הקשת כבר קיימת.");
+          else commitManet(next);
+          setPendingEdgeStart(null);
+        }
+        return;
+      }
+      handleNodeClick(id);
+    },
+    [manet, editTool, pendingEdgeStart, commitManet, handleNodeClick, flashEdit],
+  );
+
+  const handleManetEdgeClick = useCallback(
+    (a: number, b: number) => {
+      if (!manet || editTool !== "delete") return;
+      commitManet(deleteManetEdge(manet, a, b));
+    },
+    [manet, editTool, commitManet],
+  );
+
   if (!manet) {
     return (
       <Panel title="שלב 2 · גרף משלים">
@@ -254,6 +312,12 @@ export function Stage2_Complement() {
           onInterferenceRadiusChange={setInterferenceRadius}
           conflictGraph={conflictGraph}
           linkLabel={linkLabel}
+          editTool={editTool}
+          onToolChange={setEditToolAndReset}
+          pendingEdgeStart={pendingEdgeStart}
+          editMsg={editMsg}
+          onNodeClick={handleManetNodeClick}
+          onEdgeClick={handleManetEdgeClick}
         />
       )}
 
@@ -436,10 +500,22 @@ export function Stage2_Complement() {
               ]}
             />
             <div style={{ margin: "10px 0 8px", color: palette.textSecondary, fontSize: 13 }}>
-              <strong style={{ color: palette.textPrimary }}>{gLabel}</strong>{" "}
-              {isConflict
-                ? "— גרף התאימות: קשת = שני קישורים שיכולים לפעול יחד בלי קונפליקט (המשלים של F)"
-                : "— הגרף המקורי (רשת MANET)"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <strong style={{ color: palette.textPrimary }}>{gLabel}</strong>{" "}
+                {isConflict
+                  ? "— גרף התאימות: קשת = שני קישורים שיכולים לפעול יחד בלי קונפליקט (המשלים של F)"
+                  : "— הגרף המקורי (רשת MANET)"}
+                {isConflict && (
+                  <InfoButton title="F̄ — גרף התאימות (compatibility graph)">
+                    <p style={{ margin: 0 }}>
+                      המשלים המתמטי של F: קשת כאן אומרת &quot;שני הקישורים האלה יכולים לשדר
+                      בו-זמנית בלי התנגשות&quot;. תת-הקבוצה המודגשת (בזוהר) היא הקליק המקסימלי
+                      ב-F̄ — ומתמטית זה שווה ל-MIS(F), כלומר קבוצת הקישורים הבלתי-תלויה
+                      המקסימלית.
+                    </p>
+                  </InfoButton>
+                )}
+              </span>
               <br />
               <span style={{ fontSize: 11, color: palette.textMuted }}>
                 {selectedNode === null
@@ -451,6 +527,14 @@ export function Stage2_Complement() {
                     : `קודקוד ${selectedNode} נבחר — קשתות צהובות = השכנים שלו ב-G.`}
               </span>
             </div>
+            {!isConflict && (
+              <EditToolbar
+                tool={editTool}
+                onToolChange={setEditToolAndReset}
+                pendingEdgeStart={pendingEdgeStart}
+                msg={editMsg}
+              />
+            )}
             <GraphView
               graph={activeGraph}
               mode="geometric"
@@ -461,7 +545,8 @@ export function Stage2_Complement() {
               width={680}
               height={500}
               selectedNode={selectedNode}
-              onNodeClick={handleNodeClick}
+              onNodeClick={isConflict ? handleNodeClick : handleManetNodeClick}
+              onEdgeClick={!isConflict && editTool === "delete" ? handleManetEdgeClick : undefined}
               showDegrees={showDegrees}
               nodeLabel={linkLabel}
             />
@@ -483,8 +568,22 @@ export function Stage2_Complement() {
               />
             )}
             <div style={{ margin: "10px 0 8px", color: palette.textSecondary, fontSize: 13 }}>
-              <strong style={{ color: palette.textPrimary }}>{gbarLabel}</strong>{" "}
-              {isConflict ? "— גרף הקונפליקטים עצמו (זהה לפאנל השני בשלב 'בניית גרף הקונפליקטים')" : "— הגרף המשלים"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <strong style={{ color: palette.textPrimary }}>{gbarLabel}</strong>{" "}
+                {isConflict
+                  ? "— גרף הקונפליקטים עצמו (זהה לפאנל השני בשלב 'בניית גרף הקונפליקטים')"
+                  : "— הגרף המשלים"}
+                {isConflict && (
+                  <InfoButton title="F — גרף הקונפליקטים (שוב)">
+                    <p style={{ margin: 0 }}>
+                      אותו גרף מהפאנל השני (&quot;בניית גרף הקונפליקטים&quot;), אבל כאן פתרון
+                      ה-MIS מודגש כצמתים זוהרים בלי קשתות ביניהם — הדגמה חזותית ש&quot;אין
+                      התנגשות בין הקישורים הנבחרים&quot;, כלומר זה בפועל סט הקישורים שאפשר
+                      לשדר יחד בסלוט זמן אחד.
+                    </p>
+                  </InfoButton>
+                )}
+              </span>
               <br />
               <span style={{ fontSize: 11, color: palette.textMuted }}>
                 {selectedNode === null
@@ -679,6 +778,64 @@ function TrackToggle({
 }
 
 // --------------------------------------------------------------------------- //
+// Inline edit toolbar for the "simple" graph panel (G / C). Small, quick
+// edits only — delete a node/edge or add a new edge — so a fix doesn't force
+// a trip back to Stage 1. Anything bigger (presets, drag, undo) stays there.
+// --------------------------------------------------------------------------- //
+
+function EditToolbar({
+  tool,
+  onToolChange,
+  pendingEdgeStart,
+  msg,
+}: {
+  tool: ManetEditTool;
+  onToolChange: (t: ManetEditTool) => void;
+  pendingEdgeStart: number | null;
+  msg: string | null;
+}) {
+  const btnStyle = (active: boolean): React.CSSProperties => ({
+    padding: "4px 10px",
+    borderRadius: 6,
+    border: `1px solid ${active ? palette.queraPurpleGlow : palette.queraPurpleSoft}`,
+    background: active ? palette.queraPurple : "transparent",
+    color: active ? "#fff" : palette.textSecondary,
+    fontSize: 11.5,
+    fontWeight: 600,
+    cursor: "pointer",
+  });
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 8,
+        fontSize: 11.5,
+        color: palette.textMuted,
+      }}
+    >
+      <span>ערוך:</span>
+      <button style={btnStyle(tool === "addEdge")} onClick={() => onToolChange("addEdge")}>
+        🔗 קשת חדשה
+      </button>
+      <button style={btnStyle(tool === "delete")} onClick={() => onToolChange("delete")}>
+        🗑 מחק
+      </button>
+      {tool === "addEdge" && (
+        <span>
+          {pendingEdgeStart === null
+            ? "קליק על קודקוד ראשון"
+            : `קודקוד ${pendingEdgeStart} נבחר — קליק על קודקוד שני`}
+        </span>
+      )}
+      {tool === "delete" && <span>קליק על קודקוד/קשת ימחק אותם</span>}
+      {msg && <span style={{ color: palette.warn }}>{msg}</span>}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
 // Conflict-graph intro — shown only on the conflict track, before the main
 // complement/MIS panel. Builds intuition for F itself: connectivity graph C
 // (links) vs. the conflict graph F derived from it, plus the interference
@@ -691,12 +848,24 @@ function ConflictGraphIntro({
   onInterferenceRadiusChange,
   conflictGraph,
   linkLabel,
+  editTool,
+  onToolChange,
+  pendingEdgeStart,
+  editMsg,
+  onNodeClick,
+  onEdgeClick,
 }: {
   manetGraph: GraphDTO;
   interferenceRadius: number;
   onInterferenceRadiusChange: (r: number) => void;
   conflictGraph: ConflictGraphResponse | null;
   linkLabel?: (id: number) => string;
+  editTool: ManetEditTool;
+  onToolChange: (t: ManetEditTool) => void;
+  pendingEdgeStart: number | null;
+  editMsg: string | null;
+  onNodeClick: (id: number) => void;
+  onEdgeClick: (a: number, b: number) => void;
 }) {
   const cStats = computeGraphStats(manetGraph.n_nodes, manetGraph.edges);
   const fStats = conflictGraph
@@ -787,9 +956,31 @@ function ConflictGraphIntro({
               ["", ""],
             ]}
           />
-          <div style={{ margin: "10px 0 8px", fontSize: 11, color: palette.textMuted }}>
-            כל צומת = מכשיר MANET; כל קשת = קישור (link) — זהו הקלט לבניית F.
+          <div
+            style={{
+              margin: "10px 0 8px",
+              fontSize: 11,
+              color: palette.textMuted,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span>כל צומת = מכשיר MANET; כל קשת = קישור (link) — זהו הקלט לבניית F.</span>
+            <InfoButton title="C — גרף קישוריות (connectivity graph)">
+              <p style={{ margin: 0 }}>
+                הגרף הגולמי של הרשת: צמתים = מכשירים, קשתות = קווי תקשורת ביניהם. יש אופציה
+                להדליק טבעת רדיוס-הפרעה (R′) שקופה סביב כל צומת. זה הקלט לבניית גרף
+                הקונפליקטים.
+              </p>
+            </InfoButton>
           </div>
+          <EditToolbar
+            tool={editTool}
+            onToolChange={onToolChange}
+            pendingEdgeStart={pendingEdgeStart}
+            msg={editMsg}
+          />
           <GraphView
             graph={manetGraph}
             mode="geometric"
@@ -797,6 +988,8 @@ function ConflictGraphIntro({
             caption="C  (connectivity graph)"
             width={680}
             height={420}
+            onNodeClick={onNodeClick}
+            onEdgeClick={editTool === "delete" ? onEdgeClick : undefined}
           />
         </div>
         <div>
@@ -816,9 +1009,28 @@ function ConflictGraphIntro({
           ) : (
             <div style={{ color: palette.textMuted, fontSize: 12 }}>מחשב את F…</div>
           )}
-          <div style={{ margin: "10px 0 8px", fontSize: 11, color: palette.textMuted }}>
-            כל קודקוד F = קישור ב-C (מסומן "i–j"), ממוקם באמצע הקישור. קשת = קונפליקט בין שני
-            קישורים.
+          <div
+            style={{
+              margin: "10px 0 8px",
+              fontSize: 11,
+              color: palette.textMuted,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span>
+              כל קודקוד F = קישור ב-C (מסומן &quot;i–j&quot;), ממוקם באמצע הקישור. קשת =
+              קונפליקט בין שני קישורים.
+            </span>
+            <InfoButton title="F — גרף הקונפליקטים (conflict graph)">
+              <p style={{ margin: 0 }}>
+                כאן כל קישור (edge) בגרף הרשת הופך לצומת בגרף החדש (מתויג &quot;i–j&quot;,
+                ממוקם באמצע הקישור המקורי). שני צמתי-קישור מקושרים אם הם &quot;מתנגשים&quot; —
+                כלומר חולקים מכשיר משותף, או שהמכשירים קרובים מספיק (בטווח R′). זהו גרף F
+                של Jain et al. 2003.
+              </p>
+            </InfoButton>
           </div>
           {conflictGraph && (
             <GraphView

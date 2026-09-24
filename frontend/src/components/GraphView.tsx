@@ -33,6 +33,8 @@ interface Props {
   selectedNode?: number | null;
   /** Click handler; node id is passed. */
   onNodeClick?: (id: number) => void;
+  /** Click handler on an edge (wide invisible hitbox over the visible line). */
+  onEdgeClick?: (a: number, b: number) => void;
   /** When true, show "n=… m=… density=…" badge in the top-right. */
   showStatsBadge?: boolean;
   /**
@@ -78,6 +80,7 @@ export function GraphView({
   emphasizeHighlightedEdges = false,
   selectedNode = null,
   onNodeClick,
+  onEdgeClick,
   showStatsBadge = false,
   showDegrees = false,
   degreeEdges,
@@ -211,6 +214,25 @@ export function GraphView({
         if (isCliqueEdge(d)) return 2.8;
         return 1.8;
       });
+
+    // Wide invisible hitboxes over each edge — only added when an edge-click
+    // handler is supplied, so panels without one keep the plain thin lines.
+    const edgeHitSel = onEdgeClick
+      ? svg
+          .append("g")
+          .attr("class", "link-hitboxes")
+          .selectAll("line")
+          .data(links)
+          .enter()
+          .append("line")
+          .attr("stroke", "transparent")
+          .attr("stroke-width", 14)
+          .style("cursor", "pointer")
+          .on("click", (event, d) => {
+            event.stopPropagation();
+            onEdgeClick(d.source, d.target);
+          })
+      : null;
 
     // Nodes
     const nodeSel = svg
@@ -400,6 +422,11 @@ export function GraphView({
             .attr("y1", (d) => (d.source as unknown as SimNode).y ?? 0)
             .attr("x2", (d) => (d.target as unknown as SimNode).x ?? 0)
             .attr("y2", (d) => (d.target as unknown as SimNode).y ?? 0);
+          edgeHitSel
+            ?.attr("x1", (d) => (d.source as unknown as SimNode).x ?? 0)
+            .attr("y1", (d) => (d.source as unknown as SimNode).y ?? 0)
+            .attr("x2", (d) => (d.target as unknown as SimNode).x ?? 0)
+            .attr("y2", (d) => (d.target as unknown as SimNode).y ?? 0);
           nodeSel.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
         });
       simRef.current = sim;
@@ -407,6 +434,11 @@ export function GraphView({
       // Geometric: position once, no simulation
       linkSel
         .attr("x1", (d) => xScale(nodes[d.source].x))
+        .attr("y1", (d) => yScale(nodes[d.source].y))
+        .attr("x2", (d) => xScale(nodes[d.target].x))
+        .attr("y2", (d) => yScale(nodes[d.target].y));
+      edgeHitSel
+        ?.attr("x1", (d) => xScale(nodes[d.source].x))
         .attr("y1", (d) => yScale(nodes[d.source].y))
         .attr("x2", (d) => xScale(nodes[d.target].x))
         .attr("y2", (d) => yScale(nodes[d.target].y));
@@ -429,6 +461,7 @@ export function GraphView({
     emphasizeHighlightedEdges,
     selectedNode,
     onNodeClick,
+    onEdgeClick,
     showStatsBadge,
     showDegrees,
     degrees,

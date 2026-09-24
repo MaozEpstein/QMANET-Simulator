@@ -155,15 +155,7 @@ function Header() {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            background: `radial-gradient(circle, ${palette.queraPurpleGlow} 0%, ${palette.queraPurple} 60%, transparent 100%)`,
-            boxShadow: `0 0 20px ${palette.queraPurpleGlow}`,
-          }}
-        />
+        <img src="/favicon.svg" alt="" width={32} height={32} style={{ borderRadius: 8 }} />
         <div>
           <div style={{ fontWeight: 700, fontSize: 18 }}>Qsimulator</div>
           <div style={{ fontSize: 12, color: palette.textMuted }}>

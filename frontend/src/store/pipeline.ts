@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type {
@@ -233,6 +234,31 @@ export function selectStaleStages(state: PipelineState): {
     schedule: misStale || embedStale || scheduleStale,
     simulation: misStale || embedStale || scheduleStale || simulationStale,
   };
+}
+
+/**
+ * Commits a new MANET graph and invalidates every downstream derived stage
+ * (MIS, embed, schedule, simulation) — the same contract Stage 1's editor
+ * uses. Shared so Stage 2's inline node/edge edits (delete node/edge, add
+ * edge, directly on the "simple" graph panel) stay consistent with it
+ * without duplicating the reset logic.
+ */
+export function useCommitManet() {
+  const setManet = usePipeline((s) => s.setManet);
+  const setMIS = usePipeline((s) => s.setMIS);
+  const setEmbed = usePipeline((s) => s.setEmbed);
+  const setSchedule = usePipeline((s) => s.setSchedule);
+  const resetSimulation = usePipeline((s) => s.resetSimulation);
+  return useCallback(
+    (payload: MANETResponse) => {
+      setManet(payload);
+      setMIS(null);
+      setEmbed(null);
+      setSchedule(null);
+      resetSimulation();
+    },
+    [setManet, setMIS, setEmbed, setSchedule, resetSimulation],
+  );
 }
 
 export const usePipeline = create<PipelineState>()(
