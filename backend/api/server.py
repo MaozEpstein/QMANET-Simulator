@@ -12,6 +12,7 @@ Endpoints will be filled in over phases 1-7. This stub exposes:
 from __future__ import annotations
 
 import os
+from concurrent.futures import ProcessPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
@@ -32,6 +33,9 @@ from api.models import (
     ComplementRequest,
     ConflictGraphRequest,
     ConflictGraphResponse,
+    InterferenceSweepPointDTO,
+    InterferenceSweepRequest,
+    InterferenceSweepResponse,
     CostEstimateDTO,
     EmbedRecomputeRequest,
     EmbedRequest,
@@ -77,7 +81,13 @@ from api.models import (
 )
 from pipeline import clique_to_mis as cqm
 from pipeline import manet as manet_mod
-from pipeline.conflict_graph import build_conflict_graph
+from pipeline.conflict_graph import (
+    SWEEP_MAX_LINKS,
+    SWEEP_POINT_TIMEOUT_S,
+    build_conflict_graph,
+    compute_interference_breakpoints,
+    solve_sweep_point,
+)
 from pipeline.adiabatic_gap import GAP_MAX_ATOMS, compute_min_gap, compute_spectrum
 from pipeline.phase_diagram import PHASE_DIAGRAM_MAX_ATOMS, compute_phase_diagram
 from pipeline.classical_sa import SAConfig, simulated_annealing
@@ -254,6 +264,85 @@ def graph_conflict(req: ConflictGraphRequest) -> ConflictGraphResponse:
         conflict_graph=_graph_to_dto(result.conflict_graph),
         conflict_graph_complement=_graph_to_dto(result.conflict_graph_complement),
         link_endpoints=result.link_endpoints,
+    )
+
+
+@app.post("/api/graph/conflict/sweep", response_model=InterferenceSweepResponse)
+def graph_conflict_sweep(req: InterferenceSweepRequest) -> InterferenceSweepResponse:
+    """
+    |MIS(F)| as a step function of R' — one point per exact breakpoint
+    (see ``compute_interference_breakpoints``), not an arbitrary grid, since
+    |MIS(F)| only changes exactly where an edge of F turns on.
+
+    Mirrors the "null when too large" convention of e.g. ``schedule_spectrum``:
+    above ``SWEEP_MAX_LINKS`` links we return ``points=None`` rather than a
+    422, since the sweep is just an optional research aid, not a required
+    pipeline step.
+
+    Each breakpoint's exact MIS solve runs in a subprocess with its own wall
+    clock budget (SWEEP_POINT_TIMEOUT_S) — the branch-and-bound solver is
+    worst-case exponential regardless of graph size, so a rare pathological
+    instance could otherwise hang this request (and the caller's browser
+    tab) indefinitely. On a timeout we return whatever points were already
+    computed, flagged via `timed_out`, instead of failing the whole sweep.
+    """
+    g = _dto_to_graph(req.graph)
+    try:
+        breakpoints = compute_interference_breakpoints(g)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    n_links = len(g.edges)
+    n_total = len(breakpoints)
+    if n_links > SWEEP_MAX_LINKS:
+        return InterferenceSweepResponse(
+            points=None,
+            n_links=n_links,
+            max_links=SWEEP_MAX_LINKS,
+            n_breakpoints_total=n_total,
+        )
+
+    if n_total > req.max_points:
+        # Evenly-spaced indices into the sorted breakpoints, always keeping
+        # the first and last so the sampled curve still spans the full range.
+        last = req.max_points - 1
+        idx = sorted({round(i * (n_total - 1) / last) for i in range(req.max_points)})
+        sampled = [breakpoints[i] for i in idx]
+    else:
+        sampled = breakpoints
+
+    points: list[InterferenceSweepPointDTO] = []
+    timed_out = False
+    if sampled:
+        executor = ProcessPoolExecutor(max_workers=1)
+        try:
+            for r in sampled:
+                future = executor.submit(solve_sweep_point, g, r)
+                try:
+                    mis_size = future.result(timeout=SWEEP_POINT_TIMEOUT_S)
+                except FutureTimeoutError:
+                    timed_out = True
+                    break
+                points.append(InterferenceSweepPointDTO(interference_radius=r, mis_size=mis_size))
+        finally:
+            # A timed-out task keeps running in its worker process — a plain
+            # shutdown(wait=True) (what the executor's own __exit__ would do)
+            # blocks this request until that stuck task finishes on its own,
+            # defeating the timeout entirely. Kill the worker process(es)
+            # directly instead. `_processes` is a CPython implementation
+            # detail, not public API; if it's ever unavailable the `getattr`
+            # default just skips the hard-kill and the process is orphaned
+            # rather than this endpoint crashing.
+            for proc in list(getattr(executor, "_processes", {}).values()):
+                proc.kill()
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    return InterferenceSweepResponse(
+        points=points,
+        n_links=n_links,
+        max_links=SWEEP_MAX_LINKS,
+        n_breakpoints_total=n_total,
+        timed_out=timed_out,
     )
 
 
@@ -758,6 +847,20 @@ def braket_submit(req: BraketSubmitRequest) -> BraketSubmitResponse:
 @app.post("/api/routing/build", response_model=RoutingResponse)
 def routing_build(req: RoutingRequest) -> RoutingResponse:
     """Compute the routing table for a MANET given the backbone clique."""
+    if req.track == "conflict":
+        # `graph`/`backbone` would be a conflict-graph (links, not devices) in
+        # this case — routing has no meaningful interpretation there (see
+        # RoutingRequest.track docstring). The frontend's Stage 8 already
+        # never calls this endpoint on the conflict track; this guard exists
+        # so that stays true for any *other* caller too.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Routing is only defined for the direct MIS track — on the "
+                "conflict track, backbone vertices are MANET links, not "
+                "devices, so there is no device-routing table to build."
+            ),
+        )
     g = _graph_to_internal(req.graph)
     try:
         res = build_routing_table(g, req.backbone)

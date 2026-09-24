@@ -68,6 +68,16 @@ def test_routing_rejects_out_of_range_backbone():
     assert r.status_code == 422
 
 
+def test_routing_rejects_conflict_track():
+    """The conflict track's "backbone" is a set of MANET *links*, not
+    devices — routing has no meaningful interpretation there, so the
+    endpoint must reject it rather than silently build a nonsense table."""
+    payload = _k_n_payload(4)
+    payload["track"] = "conflict"
+    r = client.post("/api/routing/build", json=payload)
+    assert r.status_code == 400
+
+
 def test_routing_empty_backbone_uses_fallback():
     """Empty backbone: BFS fallback resolves every connected pair. Path 0-1-2
     is connected, so 0→2 routes via 0→1→2 = 2 hops with via='fallback'."""

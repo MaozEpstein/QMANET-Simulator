@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "../api/rest";
-import type { ConflictGraphResponse, GraphDTO } from "../api/rest";
+import type { ConflictGraphResponse, GraphDTO, InterferenceSweepResponse } from "../api/rest";
 import { GraphView } from "../components/GraphView";
 import { InfoButton } from "../components/InfoButton";
+import { InterferenceSweepChart } from "../components/InterferenceSweepChart";
 import { Panel } from "../components/Panel";
 import { selectStaleStages, usePipeline, useCommitManet, type MisTrack } from "../store/pipeline";
 import { StaleBanner } from "../components/StaleBanner";
@@ -875,6 +876,32 @@ function ConflictGraphIntro({
   // everyone needs to see immediately (same rationale as showDegrees).
   const [showInterferenceRadius, setShowInterferenceRadius] = useState(false);
 
+  // |MIS(F)| vs R' sweep — an on-demand research aid, not part of the main
+  // pipeline. Kept in local state (not the store) and cleared whenever
+  // `manetGraph` changes so a stale sweep never lingers after an edit; the
+  // user re-opens the toggle to recompute, same "no silent auto-recompute"
+  // spirit as the rest of Stage 2's inline editing.
+  const [showSweep, setShowSweep] = useState(false);
+  const [sweep, setSweep] = useState<InterferenceSweepResponse | null>(null);
+  const [sweepLoading, setSweepLoading] = useState(false);
+  const [sweepErr, setSweepErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSweep(null);
+    setSweepErr(null);
+  }, [manetGraph]);
+
+  useEffect(() => {
+    if (!showSweep || sweep || sweepLoading) return;
+    setSweepLoading(true);
+    setSweepErr(null);
+    api
+      .conflictGraphSweep(manetGraph)
+      .then(setSweep)
+      .catch((e: Error) => setSweepErr(e.message))
+      .finally(() => setSweepLoading(false));
+  }, [showSweep, sweep, sweepLoading, manetGraph]);
+
   return (
     <Panel
       title="שלב 2 · בניית גרף הקונפליקטים (Interference)"
@@ -896,7 +923,10 @@ function ConflictGraphIntro({
           color: palette.textSecondary,
         }}
       >
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label
+          style={{ display: "flex", alignItems: "center", gap: 8 }}
+          title="ברירת מחדל = טווח התקשורת R של MANET (שלב 1). R' > R מרחיב את טווח ההפרעה מעבר לטווח השידור — בדיוק הנקודה של Jain et al. §3.1."
+        >
           <span style={{ fontWeight: 600, color: palette.textPrimary }}>
             טווח הפרעה R'
           </span>
@@ -922,10 +952,6 @@ function ConflictGraphIntro({
             dir="ltr"
           />
         </label>
-        <span style={{ color: palette.textMuted, fontSize: 11 }}>
-          ברירת מחדל = טווח התקשורת R של MANET (שלב 1). R' &gt; R מרחיב את טווח ההפרעה מעבר לטווח
-          השידור — בדיוק הנקודה של Jain et al. §3.1.
-        </span>
         <div
           style={{
             height: 22,
@@ -940,7 +966,61 @@ function ConflictGraphIntro({
           checked={showInterferenceRadius}
           onChange={setShowInterferenceRadius}
         />
+        <div
+          style={{
+            height: 22,
+            width: 1,
+            background: palette.queraPurpleSoft,
+            opacity: 0.5,
+          }}
+        />
+        <SwitchToggle
+          label="📈 סוויפ MIS(R')"
+          hint="מריץ סוויפ על טווח ההפרעה ומראה איך |MIS(F)| משתנה — מדרגה בכל נקודה גיאומטרית מדויקת שבה קשת ב-F נדלקת (Jain et al., §4)."
+          checked={showSweep}
+          onChange={setShowSweep}
+        />
       </div>
+
+      {showSweep && (
+        <div style={{ marginBottom: 14 }}>
+          {sweepLoading && (
+            <div style={{ color: palette.textMuted, fontSize: 12 }}>מריץ סוויפ על R'…</div>
+          )}
+          {sweepErr && (
+            <div style={{ color: palette.err, fontSize: 12 }} dir="ltr">
+              {sweepErr}
+            </div>
+          )}
+          {sweep && sweep.points === null && (
+            <div style={{ color: palette.warn, fontSize: 12 }}>
+              יש {sweep.n_links} קישורים ברשת — מעל למקסימום ({sweep.max_links}) לחישוב מדויק
+              של הסוויפ.
+            </div>
+          )}
+          {sweep && sweep.points !== null && (
+            <>
+              {sweep.timed_out && (
+                <div style={{ color: palette.warn, fontSize: 12, marginBottom: 6 }}>
+                  הגרף הזה מורכב מדי להרצה של הסוויפ המלא — נקודה מסוימת ארכה יותר מדי זמן
+                  לחשב, אז ההרצה הופסקה. מוצגות {sweep.points.length} נקודות שהושלמו.
+                </div>
+              )}
+              {!sweep.timed_out && sweep.n_breakpoints_total > sweep.points.length && (
+                <div style={{ color: palette.textMuted, fontSize: 11, marginBottom: 6 }}>
+                  מוצגות {sweep.points.length} מתוך {sweep.n_breakpoints_total} נקודות קריטיות
+                  (לצורך זמן חישוב).
+                </div>
+              )}
+              <InterferenceSweepChart
+                points={sweep.points}
+                currentR={interferenceRadius}
+                onPick={onInterferenceRadiusChange}
+              />
+            </>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div>
@@ -1525,10 +1605,11 @@ function SwitchToggle({
 }) {
   return (
     <label
+      title={hint}
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        gap: 8,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.55 : 1,
       }}
@@ -1564,10 +1645,7 @@ function SwitchToggle({
           }}
         />
       </span>
-      <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-        <span style={{ color: palette.textPrimary, fontWeight: 600, fontSize: 12 }}>{label}</span>
-        {hint && <span style={{ color: palette.textMuted, fontSize: 10 }}>{hint}</span>}
-      </span>
+      <span style={{ color: palette.textPrimary, fontWeight: 600, fontSize: 12 }}>{label}</span>
     </label>
   );
 }

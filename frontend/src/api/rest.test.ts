@@ -401,6 +401,25 @@ describe("api.measure / api.postprocess / api.classicalSA", () => {
     expect(url).toBe("/api/routing/build");
   });
 
+  it("conflictGraphSweep() posts graph + max_points and parses InterferenceSweepResponse", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        points: [{ interference_radius: 5.0, mis_size: 1 }],
+        n_links: 2,
+        max_links: 28,
+        n_breakpoints_total: 1,
+      }),
+    );
+    const res = await api.conflictGraphSweep(
+      { n_nodes: 4, edges: [[0, 1], [2, 3]], node_positions: null },
+      10,
+    );
+    expect(res.points).toEqual([{ interference_radius: 5.0, mis_size: 1 }]);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/graph/conflict/sweep");
+    expect(JSON.parse(init.body).max_points).toBe(10);
+  });
+
   it("postprocessBatch() forwards shots and parses summary", async () => {
     fetchMock.mockResolvedValueOnce(
       ok({

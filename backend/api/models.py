@@ -56,6 +56,34 @@ class ConflictGraphResponse(BaseModel):
     """link_endpoints[k] = (i, j) — the input-graph edge F's vertex k represents."""
 
 
+class InterferenceSweepRequest(BaseModel):
+    graph: GraphDTO
+    max_points: int = Field(default=60, ge=2, le=200)
+    """Cap on returned points. If the true breakpoint count exceeds this,
+    the response is an even subsample (see InterferenceSweepResponse)."""
+
+
+class InterferenceSweepPointDTO(BaseModel):
+    interference_radius: float
+    mis_size: int
+
+
+class InterferenceSweepResponse(BaseModel):
+    points: list[InterferenceSweepPointDTO] | None
+    """null when n_links > max_links — the conflict graph would be too big
+    for an exact MIS solve at every breakpoint."""
+    n_links: int
+    max_links: int
+    n_breakpoints_total: int
+    """True breakpoint count; `points` may be an even subsample of these
+    (always including the first and last) when it exceeds max_points."""
+    timed_out: bool = False
+    """True when a single breakpoint's exact MIS solve exceeded the
+    per-point time budget (SWEEP_POINT_TIMEOUT_S) — some instances are
+    pathologically slow for the exact solver regardless of size. `points`
+    then holds whatever was computed before the timeout, not the full set."""
+
+
 class MISResponse(BaseModel):
     graph: GraphDTO
     complement: GraphDTO
@@ -419,6 +447,13 @@ class SAResponse(BaseModel):
 class RoutingRequest(BaseModel):
     graph: GraphDTO
     backbone: list[int]
+    track: Literal["direct", "conflict"] = "direct"
+    """Which Stage-2 method produced `backbone`. Routing is only meaningful
+    for "direct" — `graph`'s vertices are then MANET devices, so a shortest
+    path is a real multi-hop device route. On "conflict", vertices are
+    MANET *links* (see pipeline.conflict_graph), and "backbone" is really a
+    schedulable link set — there's no device-routing interpretation, so the
+    endpoint rejects it rather than silently returning a nonsense table."""
 
 
 class RouteDTO(BaseModel):

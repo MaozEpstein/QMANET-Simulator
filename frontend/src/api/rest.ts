@@ -83,6 +83,30 @@ export interface ConflictGraphResponse {
   link_endpoints: [number, number][];
 }
 
+export interface InterferenceSweepRequest {
+  graph: GraphDTO;
+  max_points?: number;
+}
+
+export interface InterferenceSweepPoint {
+  interference_radius: number;
+  mis_size: number;
+}
+
+export interface InterferenceSweepResponse {
+  /** null when n_links > max_links — see the backend doc comment. */
+  points: InterferenceSweepPoint[] | null;
+  n_links: number;
+  max_links: number;
+  /** True breakpoint count; `points` may be an even subsample of these
+   * (always including the first and last) when it exceeds max_points. */
+  n_breakpoints_total: number;
+  /** True when a single breakpoint's exact solve exceeded the backend's
+   * per-point time budget — `points` then holds only what was computed
+   * before giving up, not the full sweep. */
+  timed_out: boolean;
+}
+
 // --------------------------------------------------------------------------- //
 // Phase 2 — Embedding
 // --------------------------------------------------------------------------- //
@@ -455,6 +479,11 @@ export const api = {
       graph,
       interference_radius,
     }),
+  conflictGraphSweep: (graph: GraphDTO, max_points?: number) =>
+    postJSON<InterferenceSweepRequest, InterferenceSweepResponse>(
+      "/api/graph/conflict/sweep",
+      { graph, max_points },
+    ),
   embed: (req: EmbedRequest) => postJSON<EmbedRequest, EmbedResponse>("/api/embed/atoms", req),
   embedRecompute: (req: EmbedRecomputeRequest) =>
     postJSON<EmbedRecomputeRequest, EmbedResponse>("/api/embed/recompute", req),

@@ -121,10 +121,16 @@ interface PipelineState {
   /** Stage-2 conflict-track intermediate: F, built from the MANET graph. */
   conflictGraph: ConflictGraphResponse | null;
   setConflictGraph: (c: ConflictGraphResponse | null) => void;
-  /** Interference radius R' used to build the conflict graph. Defaults to
-   *  the MANET's comm_radius the first time the conflict track is used. */
+  /** Interference radius R' used to build the conflict graph. Auto-synced
+   *  to the MANET's comm_radius whenever a new MANET graph is set — unless
+   *  the user has explicitly edited R' themselves (see
+   *  `interferenceRadiusTouched`), in which case their choice is kept. */
   interferenceRadius: number;
   setInterferenceRadius: (r: number) => void;
+  /** True once the user has explicitly set R' (via setInterferenceRadius).
+   *  Gates the auto-sync in setManet — an explicit choice is never
+   *  silently overwritten by a later MANET regeneration. */
+  interferenceRadiusTouched: boolean;
 
   embed: EmbedResponse | null;
   setEmbed: (e: EmbedResponse | null) => void;
@@ -267,7 +273,14 @@ export const usePipeline = create<PipelineState>()(
       currentStage: "manet",
       setStage: (s) => set({ currentStage: s }),
       manet: null,
-      setManet: (m) => set({ manet: m }),
+      setManet: (m) =>
+        set((state) => ({
+          manet: m,
+          interferenceRadius:
+            !state.interferenceRadiusTouched && m
+              ? m.config.comm_radius
+              : state.interferenceRadius,
+        })),
       track: "conflict",
       setTrack: (t) =>
         set((state) => ({
@@ -307,7 +320,8 @@ export const usePipeline = create<PipelineState>()(
       conflictGraph: null,
       setConflictGraph: (c) => set({ conflictGraph: c }),
       interferenceRadius: 35,
-      setInterferenceRadius: (r) => set({ interferenceRadius: r }),
+      setInterferenceRadius: (r) => set({ interferenceRadius: r, interferenceRadiusTouched: true }),
+      interferenceRadiusTouched: false,
       embed: null,
       // Changing the embed invalidates all schedule-derived analyses (positions
       // feed every diagonalisation).
@@ -451,6 +465,7 @@ export const usePipeline = create<PipelineState>()(
         misConflict: state.misConflict,
         conflictGraph: state.conflictGraph,
         interferenceRadius: state.interferenceRadius,
+        interferenceRadiusTouched: state.interferenceRadiusTouched,
         embed: state.embed,
         schedule: state.schedule,
         sourceHashes: state.sourceHashes,

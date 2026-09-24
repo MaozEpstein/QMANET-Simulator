@@ -15,6 +15,8 @@ beforeEach(() => {
     embed: null,
     schedule: null,
     simulation: { frames: [], status: "idle", currentFrameIndex: 0 },
+    interferenceRadius: 35,
+    interferenceRadiusTouched: false,
   });
 });
 
@@ -68,6 +70,33 @@ describe("usePipeline store", () => {
     };
     usePipeline.getState().setManet(fake);
     expect(usePipeline.getState().manet).toEqual(fake);
+  });
+
+  it("setManet syncs interferenceRadius to comm_radius when the user hasn't touched it", () => {
+    usePipeline.setState({ interferenceRadiusTouched: false });
+    const fake = {
+      graph: { n_nodes: 2, edges: [[0, 1] as [number, number]], node_positions: null },
+      config: { n_nodes: 2, box_size: 10, comm_radius: 17, seed: 1 },
+    };
+    usePipeline.getState().setManet(fake);
+    expect(usePipeline.getState().interferenceRadius).toBe(17);
+  });
+
+  it("setManet does not overwrite an explicitly-set interferenceRadius", () => {
+    usePipeline.getState().setInterferenceRadius(99);
+    const fake = {
+      graph: { n_nodes: 2, edges: [[0, 1] as [number, number]], node_positions: null },
+      config: { n_nodes: 2, box_size: 10, comm_radius: 17, seed: 1 },
+    };
+    usePipeline.getState().setManet(fake);
+    expect(usePipeline.getState().interferenceRadius).toBe(99);
+  });
+
+  it("setInterferenceRadius marks interferenceRadiusTouched", () => {
+    usePipeline.setState({ interferenceRadiusTouched: false });
+    usePipeline.getState().setInterferenceRadius(42);
+    expect(usePipeline.getState().interferenceRadiusTouched).toBe(true);
+    expect(usePipeline.getState().interferenceRadius).toBe(42);
   });
 
   it("setEmbed stores and clears", () => {

@@ -33,7 +33,9 @@ export function Stage7_PostProcess() {
     setFinalBitstringProbs,
     setPostProcess,
     setStage,
+    track,
   } = usePipeline();
+  const isConflict = track === "conflict";
   const [measurement, setMeasurement] = useState<MeasureResponse | null>(null);
   const [batch, setBatch] = useState<PostProcessBatchResponse | null>(null);
   const [sa, setSa] = useState<SAResponse | null>(null);
@@ -234,6 +236,7 @@ export function Stage7_PostProcess() {
           blockadeRadiusUm={embed.blockade_radius_um}
           inducedEdges={embed.induced_edges}
           onContinueToStage8={() => setStage("routing")}
+          isConflict={isConflict}
         />
       )}
       {batch && (
@@ -1069,6 +1072,7 @@ function ResultHero({
   blockadeRadiusUm,
   inducedEdges,
   onContinueToStage8,
+  isConflict,
 }: {
   best: PostProcessResultDTO;
   batchSummary: PostProcessBatchResponse["summary"];
@@ -1076,6 +1080,11 @@ function ResultHero({
   blockadeRadiusUm: number;
   inducedEdges: [number, number][];
   onContinueToStage8: () => void;
+  /** True on the conflict track — V_MIS is a set of MANET *links* that can
+   *  transmit simultaneously, not a device backbone, and Stage 8 doesn't
+   *  build a routing table for it. Swaps the labels/CTA accordingly instead
+   *  of promising a routing continuation the next stage won't deliver. */
+  isConflict: boolean;
 }) {
   const indices = useMemo(() => bitsToIndices(best.final_bitstring), [best]);
   const ratio = batchSummary.best_r_ratio ?? null;
@@ -1173,7 +1182,7 @@ function ResultHero({
           <span style={{ fontSize: 18 }}>🏁</span>
           <span>התוצר הסופי</span>
           <span style={{ color: palette.textMuted, fontWeight: 400 }} dir="ltr">
-            ·  V_MIS (Quantum-derived backbone)
+            ·  {isConflict ? "V_MIS (schedulable link set)" : "V_MIS (Quantum-derived backbone)"}
           </span>
         </div>
         <div
@@ -1331,7 +1340,7 @@ function ResultHero({
                 boxShadow: `0 4px 16px ${palette.queraPurple}77`,
               }}
             >
-              ←  המשך לשלב 8 · Routing
+              {isConflict ? "←  המשך לשלב 8 (אין ניתוב במסלול זה)" : "←  המשך לשלב 8 · Routing"}
             </button>
             <button
               onClick={onCopy}
