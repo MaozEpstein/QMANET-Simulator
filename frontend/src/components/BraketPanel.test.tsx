@@ -16,6 +16,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BraketPanel } from "./BraketPanel";
 import type { BraketPayloadResponse, BraketSubmitResponse, NodePos, ScheduleDTO } from "../api/rest";
+import { exportJSON } from "../lib/exportJson";
+
+vi.mock("../lib/exportJson", () => ({ exportJSON: vi.fn() }));
 
 const positions: NodePos[] = [
   { id: 0, x: 10.0, y: 10.0 },
@@ -174,6 +177,22 @@ describe("BraketPanel", () => {
     });
     // Submit remains disabled — we never got a payload back.
     expect(screen.getByRole("button", { name: /Submit to Aquila/ })).toBeDisabled();
+  });
+
+  it("downloads the payload JSON when Download is clicked", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResp(cleanPayloadResponse));
+    render(<BraketPanel positions={positions} schedule={schedule} defaultShots={100} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Build payload/ }));
+    await waitFor(() => expect(screen.getByTestId("braket-payload")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("braket-payload-download"));
+
+    expect(exportJSON).toHaveBeenCalledTimes(1);
+    expect(exportJSON).toHaveBeenCalledWith(
+      `aquila-payload-${positions.length}atoms-100shots`,
+      cleanPayloadResponse.payload,
+    );
   });
 
   it("region input value is forwarded to /api/braket/submit", async () => {

@@ -19,6 +19,7 @@ import type {
 import { ConstraintBadge } from "./ConstraintBadge";
 import { Panel } from "./Panel";
 import { palette } from "../theme/palette";
+import { exportJSON } from "../lib/exportJson";
 
 interface Props {
   positions: NodePos[];
@@ -58,6 +59,11 @@ export function BraketPanel({ positions, schedule, defaultShots = 200 }: Props) 
       /* swallow — the JSON is still visible on screen */
     }
   }, [preview]);
+
+  const downloadPayload = useCallback(() => {
+    if (!preview) return;
+    exportJSON(`aquila-payload-${positions.length}atoms-${shots}shots`, preview.payload);
+  }, [preview, positions.length, shots]);
 
   const buildPayload = useCallback(async () => {
     setLoading(true);
@@ -212,67 +218,108 @@ export function BraketPanel({ positions, schedule, defaultShots = 200 }: Props) 
           )}
           {preview && (
             <div style={{ position: "relative" }}>
-              <button
-                onClick={copyPayload}
-                aria-label="העתק את ה-payload"
-                title={copied ? "Copied!" : "Copy payload JSON"}
+              <div
                 style={{
                   position: "absolute",
                   top: 10,
                   right: 10,
                   zIndex: 2,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "6px 12px",
-                  borderRadius: 999,
-                  border: `1px solid ${
-                    copied ? palette.ok : palette.queraPurpleSoft
-                  }`,
-                  background: copied
-                    ? "rgba(61,220,151,0.18)"
-                    : "rgba(20,12,40,0.72)",
-                  backdropFilter: "blur(6px)",
-                  color: copied ? palette.ok : palette.queraPurpleGlow,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  fontFamily: "var(--font-mono)",
-                  letterSpacing: 0.3,
-                  cursor: "pointer",
-                  transition:
-                    "background 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease",
-                  boxShadow: copied
-                    ? `0 0 16px ${palette.ok}55`
-                    : `0 2px 10px rgba(0,0,0,0.35)`,
+                  display: "flex",
+                  gap: 8,
                 }}
-                onMouseEnter={(e) => {
-                  if (!copied) {
-                    e.currentTarget.style.background = "rgba(155,107,255,0.22)";
-                    e.currentTarget.style.borderColor = palette.queraPurpleGlow;
-                    e.currentTarget.style.transform = "translateY(-1px)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!copied) {
-                    e.currentTarget.style.background = "rgba(20,12,40,0.72)";
-                    e.currentTarget.style.borderColor = palette.queraPurpleSoft;
-                    e.currentTarget.style.transform = "translateY(0)";
-                  }
-                }}
-                data-testid="braket-payload-copy"
               >
-                {copied ? (
-                  <>
-                    <CheckIcon />
-                    <span dir="ltr">Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <ClipboardIcon />
-                    <span dir="ltr">Copy</span>
-                  </>
-                )}
-              </button>
+                <button
+                  onClick={downloadPayload}
+                  aria-label="הורד את ה-payload כקובץ JSON"
+                  title="Download payload JSON"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "8px 16px",
+                    borderRadius: 999,
+                    border: `1px solid ${palette.ok}`,
+                    background: palette.ok,
+                    color: "#000",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    fontFamily: "var(--font-mono)",
+                    letterSpacing: 0.3,
+                    cursor: "pointer",
+                    transition: "filter 120ms ease, transform 120ms ease",
+                    boxShadow: `0 0 14px ${palette.ok}66, 0 2px 10px rgba(0,0,0,0.35)`,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.filter = "brightness(1.12)";
+                    e.currentTarget.style.transform = "translateY(-1px)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.filter = "none";
+                    e.currentTarget.style.transform = "translateY(0)";
+                  }}
+                  data-testid="braket-payload-download"
+                >
+                  <DownloadIcon />
+                  <span dir="ltr">Download</span>
+                </button>
+                <button
+                  onClick={copyPayload}
+                  aria-label="העתק את ה-payload"
+                  title={copied ? "Copied!" : "Copy payload JSON"}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "6px 12px",
+                    borderRadius: 999,
+                    border: `1px solid ${
+                      copied ? palette.ok : palette.queraPurpleSoft
+                    }`,
+                    background: copied
+                      ? "rgba(61,220,151,0.18)"
+                      : "rgba(20,12,40,0.72)",
+                    backdropFilter: "blur(6px)",
+                    color: copied ? palette.ok : palette.queraPurpleGlow,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    fontFamily: "var(--font-mono)",
+                    letterSpacing: 0.3,
+                    cursor: "pointer",
+                    transition:
+                      "background 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease",
+                    boxShadow: copied
+                      ? `0 0 16px ${palette.ok}55`
+                      : `0 2px 10px rgba(0,0,0,0.35)`,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!copied) {
+                      e.currentTarget.style.background = "rgba(155,107,255,0.22)";
+                      e.currentTarget.style.borderColor = palette.queraPurpleGlow;
+                      e.currentTarget.style.transform = "translateY(-1px)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!copied) {
+                      e.currentTarget.style.background = "rgba(20,12,40,0.72)";
+                      e.currentTarget.style.borderColor = palette.queraPurpleSoft;
+                      e.currentTarget.style.transform = "translateY(0)";
+                    }
+                  }}
+                  data-testid="braket-payload-copy"
+                >
+                  {copied ? (
+                    <>
+                      <CheckIcon />
+                      <span dir="ltr">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <ClipboardIcon />
+                      <span dir="ltr">Copy</span>
+                    </>
+                  )}
+                </button>
+              </div>
               <pre
                 style={{
                   background: palette.bgInset,
@@ -347,6 +394,15 @@ function ClipboardIcon() {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="8" y="4" width="10" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
       <rect x="5" y="7" width="10" height="14" rx="2" stroke="currentColor" strokeWidth="2" fill="none" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 4v12m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 20h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
