@@ -257,7 +257,7 @@ def graph_conflict(req: ConflictGraphRequest) -> ConflictGraphResponse:
     """
     g = _dto_to_graph(req.graph)
     try:
-        result = build_conflict_graph(g, req.interference_radius)
+        result = build_conflict_graph(g, req.interference_radius, req.mode)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     return ConflictGraphResponse(
@@ -288,11 +288,15 @@ def graph_conflict_sweep(req: InterferenceSweepRequest) -> InterferenceSweepResp
     """
     g = _dto_to_graph(req.graph)
     try:
-        breakpoints = compute_interference_breakpoints(g)
+        breakpoints = compute_interference_breakpoints(g, req.mode)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
-    n_links = len(g.edges)
+    # F's actual vertex count — n_links for unidirectional, 2*n_links for
+    # bidirectional (see conflict_graph.py's ConflictMode doc comment). The
+    # cap must gate on this, not the raw MANET link count, since that's what
+    # the exact-MIS solver actually has to chew through.
+    n_links = len(g.edges) if req.mode == "unidirectional" else 2 * len(g.edges)
     n_total = len(breakpoints)
     if n_links > SWEEP_MAX_LINKS:
         return InterferenceSweepResponse(
@@ -317,7 +321,7 @@ def graph_conflict_sweep(req: InterferenceSweepRequest) -> InterferenceSweepResp
         executor = ProcessPoolExecutor(max_workers=1)
         try:
             for r in sampled:
-                future = executor.submit(solve_sweep_point, g, r)
+                future = executor.submit(solve_sweep_point, g, r, req.mode)
                 try:
                     mis_size = future.result(timeout=SWEEP_POINT_TIMEOUT_S)
                 except FutureTimeoutError:

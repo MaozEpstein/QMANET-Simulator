@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type {
   ConflictGraphResponse,
+  ConflictMode,
   EmbedResponse,
   GapTraceDTO,
   MANETResponse,
@@ -135,6 +136,12 @@ interface PipelineState {
    *  `interferenceRadiusTouched`, so future MANET regenerations auto-sync
    *  R' again. No-op when there's no MANET yet. */
   resetInterferenceRadius: () => void;
+  /** Which of Jain et al.'s two conflict rules builds F — see ConflictMode's
+   *  doc comment in api/rest.ts. Part of the conflict track's upstream hash
+   *  (like interferenceRadius) so switching it correctly staleifies a
+   *  cached conflict-track MIS. */
+  conflictMode: ConflictMode;
+  setConflictMode: (m: ConflictMode) => void;
 
   embed: EmbedResponse | null;
   setEmbed: (e: EmbedResponse | null) => void;
@@ -200,13 +207,18 @@ export function selectStaleStages(state: PipelineState): {
 } {
   const h = state.sourceHashes;
   // The active track's own upstream — "direct" depends only on the MANET
-  // graph, "conflict" also depends on the interference radius used to build
-  // F, so editing R' correctly flags the conflict-track MIS as stale even
-  // when the MANET graph itself hasn't changed.
+  // graph, "conflict" also depends on the interference radius and conflict
+  // mode used to build F, so editing either correctly flags the
+  // conflict-track MIS as stale even when the MANET graph itself hasn't
+  // changed.
   const misUpstreamHash = state.manet
     ? state.track === "direct"
       ? stableHash(state.manet.graph)
-      : stableHash({ graph: state.manet.graph, interferenceRadius: state.interferenceRadius })
+      : stableHash({
+          graph: state.manet.graph,
+          interferenceRadius: state.interferenceRadius,
+          conflictMode: state.conflictMode,
+        })
     : undefined;
   const embedUpstreamHash = state.mis ? stableHash(state.mis.complement) : undefined;
   const scheduleUpstreamHash = state.embed
@@ -303,10 +315,11 @@ export const usePipeline = create<PipelineState>()(
         const track = get().track;
         const manetGraph = get().manet?.graph;
         const interferenceRadius = get().interferenceRadius;
+        const conflictMode = get().conflictMode;
         const upstreamHash = m
           ? track === "direct"
             ? stableHash(manetGraph ?? null)
-            : stableHash({ graph: manetGraph ?? null, interferenceRadius })
+            : stableHash({ graph: manetGraph ?? null, interferenceRadius, conflictMode })
           : undefined;
         set((state) => ({
           mis: m,
@@ -331,6 +344,8 @@ export const usePipeline = create<PipelineState>()(
         if (!manet) return;
         set({ interferenceRadius: manet.config.comm_radius, interferenceRadiusTouched: false });
       },
+      conflictMode: "bidirectional",
+      setConflictMode: (m) => set({ conflictMode: m }),
       embed: null,
       // Changing the embed invalidates all schedule-derived analyses (positions
       // feed every diagonalisation).
@@ -475,6 +490,7 @@ export const usePipeline = create<PipelineState>()(
         conflictGraph: state.conflictGraph,
         interferenceRadius: state.interferenceRadius,
         interferenceRadiusTouched: state.interferenceRadiusTouched,
+        conflictMode: state.conflictMode,
         embed: state.embed,
         schedule: state.schedule,
         sourceHashes: state.sourceHashes,

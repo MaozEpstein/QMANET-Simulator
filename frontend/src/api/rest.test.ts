@@ -401,6 +401,27 @@ describe("api.measure / api.postprocess / api.classicalSA", () => {
     expect(url).toBe("/api/routing/build");
   });
 
+  it("conflictGraph() forwards the mode param in the request body", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        conflict_graph: { n_nodes: 2, edges: [], node_positions: null },
+        conflict_graph_complement: { n_nodes: 2, edges: [[0, 1]], node_positions: null },
+        link_endpoints: [
+          [0, 1],
+          [2, 3],
+        ],
+      }),
+    );
+    await api.conflictGraph(
+      { n_nodes: 4, edges: [[0, 1], [2, 3]], node_positions: null },
+      15,
+      "unidirectional",
+    );
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/graph/conflict");
+    expect(JSON.parse(init.body).mode).toBe("unidirectional");
+  });
+
   it("conflictGraphSweep() posts graph + max_points and parses InterferenceSweepResponse", async () => {
     fetchMock.mockResolvedValueOnce(
       ok({
@@ -418,6 +439,19 @@ describe("api.measure / api.postprocess / api.classicalSA", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/graph/conflict/sweep");
     expect(JSON.parse(init.body).max_points).toBe(10);
+  });
+
+  it("conflictGraphSweep() forwards the mode param when given", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({ points: [], n_links: 0, max_links: 120, n_breakpoints_total: 0 }),
+    );
+    await api.conflictGraphSweep(
+      { n_nodes: 4, edges: [[0, 1], [2, 3]], node_positions: null },
+      undefined,
+      "unidirectional",
+    );
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body).mode).toBe("unidirectional");
   });
 
   it("postprocessBatch() forwards shots and parses summary", async () => {

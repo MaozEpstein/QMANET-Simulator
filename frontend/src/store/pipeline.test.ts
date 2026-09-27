@@ -5,7 +5,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { STAGES, usePipeline } from "./pipeline";
+import { STAGES, selectStaleStages, usePipeline } from "./pipeline";
 
 beforeEach(() => {
   usePipeline.setState({
@@ -17,6 +17,7 @@ beforeEach(() => {
     simulation: { frames: [], status: "idle", currentFrameIndex: 0 },
     interferenceRadius: 35,
     interferenceRadiusTouched: false,
+    conflictMode: "bidirectional",
   });
 });
 
@@ -118,6 +119,32 @@ describe("usePipeline store", () => {
     usePipeline.getState().setInterferenceRadius(42);
     expect(usePipeline.getState().interferenceRadiusTouched).toBe(true);
     expect(usePipeline.getState().interferenceRadius).toBe(42);
+  });
+
+  it("changing conflictMode alone flags the conflict-track MIS as stale", () => {
+    const fakeManet = {
+      graph: { n_nodes: 2, edges: [[0, 1] as [number, number]], node_positions: null },
+      config: { n_nodes: 2, box_size: 10, comm_radius: 5, seed: 1 },
+    };
+    const fakeMis = {
+      graph: fakeManet.graph,
+      complement: fakeManet.graph,
+      max_clique_in_G: [0],
+      mis_in_complement: [0],
+      size: 1,
+      all_max_cliques: [[0]],
+      n_max_cliques: 1,
+      alpha_g: 1,
+      chromatic_lower: 1,
+      chromatic_upper: 1,
+    };
+    usePipeline.getState().setManet(fakeManet);
+    usePipeline.setState({ track: "conflict", conflictMode: "bidirectional" });
+    usePipeline.getState().setMIS(fakeMis);
+    expect(selectStaleStages(usePipeline.getState()).mis).toBe(false);
+
+    usePipeline.getState().setConflictMode("unidirectional");
+    expect(selectStaleStages(usePipeline.getState()).mis).toBe(true);
   });
 
   it("setEmbed stores and clears", () => {

@@ -69,9 +69,18 @@ export interface MISResponse {
   chromatic_upper: number;
 }
 
+/** Which of Jain et al.'s two conflict rules builds F. "bidirectional"
+ * (default) checks all 4 sender/receiver pairwise distances; "unidirectional"
+ * only checks sender<->receiver (sender = lower device id, receiver =
+ * higher — this app's links are undirected, so this is an assigned
+ * convention, not stored data). See the backend doc comment for the exact
+ * rule. */
+export type ConflictMode = "bidirectional" | "unidirectional";
+
 export interface ConflictGraphRequest {
   graph: GraphDTO;
   interference_radius: number;
+  mode?: ConflictMode;
 }
 
 export interface ConflictGraphResponse {
@@ -86,6 +95,7 @@ export interface ConflictGraphResponse {
 export interface InterferenceSweepRequest {
   graph: GraphDTO;
   max_points?: number;
+  mode?: ConflictMode;
 }
 
 export interface InterferenceSweepPoint {
@@ -474,15 +484,16 @@ export const api = {
     postJSON<MANETRequest, MANETResponse>("/api/manet/generate", req),
   complement: (graph: GraphDTO) =>
     postJSON<{ graph: GraphDTO }, MISResponse>("/api/graph/complement", { graph }),
-  conflictGraph: (graph: GraphDTO, interference_radius: number) =>
+  conflictGraph: (graph: GraphDTO, interference_radius: number, mode?: ConflictMode) =>
     postJSON<ConflictGraphRequest, ConflictGraphResponse>("/api/graph/conflict", {
       graph,
       interference_radius,
+      mode,
     }),
-  conflictGraphSweep: (graph: GraphDTO, max_points?: number) =>
+  conflictGraphSweep: (graph: GraphDTO, max_points?: number, mode?: ConflictMode) =>
     postJSON<InterferenceSweepRequest, InterferenceSweepResponse>(
       "/api/graph/conflict/sweep",
-      { graph, max_points },
+      { graph, max_points, mode },
     ),
   embed: (req: EmbedRequest) => postJSON<EmbedRequest, EmbedResponse>("/api/embed/atoms", req),
   embedRecompute: (req: EmbedRecomputeRequest) =>

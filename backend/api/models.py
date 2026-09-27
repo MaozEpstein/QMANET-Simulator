@@ -39,10 +39,11 @@ class ConflictGraphRequest(BaseModel):
     """Build the interference conflict graph F over the links of ``graph``.
 
     See ``pipeline.conflict_graph`` for the construction rule (Jain et al.,
-    MobiCom 2003, bidirectional-MAC variant)."""
+    MobiCom 2003, bidirectional- or unidirectional-MAC variant)."""
 
     graph: GraphDTO
     interference_radius: float = Field(..., gt=0.0)
+    mode: Literal["bidirectional", "unidirectional"] = "bidirectional"
 
 
 class ConflictGraphResponse(BaseModel):
@@ -61,6 +62,7 @@ class InterferenceSweepRequest(BaseModel):
     max_points: int = Field(default=60, ge=2, le=200)
     """Cap on returned points. If the true breakpoint count exceeds this,
     the response is an even subsample (see InterferenceSweepResponse)."""
+    mode: Literal["bidirectional", "unidirectional"] = "bidirectional"
 
 
 class InterferenceSweepPointDTO(BaseModel):

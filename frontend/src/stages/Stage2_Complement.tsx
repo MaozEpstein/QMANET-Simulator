@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "../api/rest";
-import type { ConflictGraphResponse, GraphDTO, InterferenceSweepResponse } from "../api/rest";
+import type {
+  ConflictGraphResponse,
+  ConflictMode,
+  GraphDTO,
+  InterferenceSweepResponse,
+} from "../api/rest";
 import { GraphView } from "../components/GraphView";
 import { InfoButton } from "../components/InfoButton";
 import { InterferenceSweepChart } from "../components/InterferenceSweepChart";
@@ -43,6 +48,8 @@ export function Stage2_Complement() {
     setInterferenceRadius,
     interferenceRadiusTouched,
     resetInterferenceRadius,
+    conflictMode,
+    setConflictMode,
   } = usePipeline();
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -72,12 +79,22 @@ export function Stage2_Complement() {
     if (!manet) return;
     setLoading(true);
     setErr(null);
+    // Clear the previous MIS immediately, before any await — otherwise a
+    // conflict-mode switch (which changes F's vertex count) briefly renders
+    // a mismatched combination: the new conflictGraph (already updated) with
+    // the stale `mis.complement` (still the old vertex count/edges) once
+    // this function's first `setConflictGraph` below lands but the second
+    // `setMIS` hasn't resolved yet. GraphView then looks up a node id that
+    // no longer exists in the (now-shorter) node_positions array and
+    // crashes. Existing `{mis && (...)}` guards mean nulling it here simply
+    // hides that panel for the brief gap instead of rendering it stale.
+    setMIS(null);
     try {
       let target: GraphDTO;
       if (track === "direct") {
         target = manet.graph;
       } else {
-        const cg = await api.conflictGraph(manet.graph, interferenceRadius);
+        const cg = await api.conflictGraph(manet.graph, interferenceRadius, conflictMode);
         setConflictGraph(cg);
         target = cg.conflict_graph_complement;
       }
@@ -90,7 +107,7 @@ export function Stage2_Complement() {
     } finally {
       setLoading(false);
     }
-  }, [manet, track, interferenceRadius, setMIS, setConflictGraph]);
+  }, [manet, track, interferenceRadius, conflictMode, setMIS, setConflictGraph]);
 
   const misStale = usePipeline((s) => selectStaleStages(s).mis);
 
@@ -107,7 +124,7 @@ export function Stage2_Complement() {
   useEffect(() => {
     if (!manet) return;
     const sig = `${manet.graph.n_nodes}:${manet.graph.edges.length}:${track}:${
-      track === "conflict" ? interferenceRadius : ""
+      track === "conflict" ? `${interferenceRadius}:${conflictMode}` : ""
     }`;
 
     if (lastSigRef.current !== sig) {
@@ -140,7 +157,7 @@ export function Stage2_Complement() {
         computeActiveMis();
       }
     }
-  }, [manet, track, interferenceRadius, mis, misStale, computeActiveMis]);
+  }, [manet, track, interferenceRadius, conflictMode, mis, misStale, computeActiveMis]);
 
   const cliques: number[][] = useMemo(() => {
     if (!mis) return [];
@@ -316,6 +333,8 @@ export function Stage2_Complement() {
           commRadius={manet.config.comm_radius}
           interferenceRadiusTouched={interferenceRadiusTouched}
           onResetInterferenceRadius={resetInterferenceRadius}
+          conflictMode={conflictMode}
+          onConflictModeChange={setConflictMode}
           conflictGraph={conflictGraph}
           linkLabel={linkLabel}
           editTool={editTool}
@@ -855,6 +874,8 @@ function ConflictGraphIntro({
   commRadius,
   interferenceRadiusTouched,
   onResetInterferenceRadius,
+  conflictMode,
+  onConflictModeChange,
   conflictGraph,
   linkLabel,
   editTool,
@@ -871,6 +892,8 @@ function ConflictGraphIntro({
   commRadius: number;
   interferenceRadiusTouched: boolean;
   onResetInterferenceRadius: () => void;
+  conflictMode: ConflictMode;
+  onConflictModeChange: (m: ConflictMode) => void;
   conflictGraph: ConflictGraphResponse | null;
   linkLabel?: (id: number) => string;
   editTool: ManetEditTool;
@@ -901,18 +924,18 @@ function ConflictGraphIntro({
   useEffect(() => {
     setSweep(null);
     setSweepErr(null);
-  }, [manetGraph]);
+  }, [manetGraph, conflictMode]);
 
   useEffect(() => {
     if (!showSweep || sweep || sweepLoading) return;
     setSweepLoading(true);
     setSweepErr(null);
     api
-      .conflictGraphSweep(manetGraph)
+      .conflictGraphSweep(manetGraph, undefined, conflictMode)
       .then(setSweep)
       .catch((e: Error) => setSweepErr(e.message))
       .finally(() => setSweepLoading(false));
-  }, [showSweep, sweep, sweepLoading, manetGraph]);
+  }, [showSweep, sweep, sweepLoading, manetGraph, conflictMode]);
 
   return (
     <Panel
@@ -981,6 +1004,15 @@ function ConflictGraphIntro({
             ↺ אפס ל-R
           </button>
         </label>
+        <div
+          style={{
+            height: 22,
+            width: 1,
+            background: palette.queraPurpleSoft,
+            opacity: 0.5,
+          }}
+        />
+        <MacModeToggle mode={conflictMode} onChange={onConflictModeChange} />
         <div
           style={{
             height: 22,
@@ -1618,6 +1650,68 @@ function CliqueMembershipBadge({
 // --------------------------------------------------------------------------- //
 // Toolbar components
 // --------------------------------------------------------------------------- //
+
+// Compact 2-way segmented control — same visual language as TrackToggle
+// (direct/conflict), just sized to sit inline in a control row instead of
+// standing as its own full-width row.
+function MacModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: ConflictMode;
+  onChange: (m: ConflictMode) => void;
+}) {
+  const options: { id: ConflictMode; label: string; hint: string }[] = [
+    {
+      id: "bidirectional",
+      label: "דו-כיווני",
+      hint: "כל קישור ב-MANET הופך לשני צמתים ב-F — אחד לכל כיוון (A→B ו-B→A) — כי כל כיוון הוא יחידת שידור עצמאית שצריך לתזמן בנפרד.",
+    },
+    {
+      id: "unidirectional",
+      label: "חד-כיווני",
+      hint: "כל קישור ב-MANET הופך לצומת אחד ב-F, בכיוון קבוע: המכשיר עם המספר הקטן יותר הוא השולח.",
+    },
+  ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label="מודל התנגשות (MAC)"
+      style={{
+        display: "flex",
+        gap: 3,
+        padding: 3,
+        background: palette.bgPanel,
+        borderRadius: 8,
+        border: `1px solid ${palette.queraPurpleSoft}`,
+      }}
+    >
+      {options.map((opt) => {
+        const active = mode === opt.id;
+        return (
+          <button
+            key={opt.id}
+            onClick={() => onChange(opt.id)}
+            title={opt.hint}
+            aria-pressed={active}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 5,
+              border: "none",
+              background: active ? palette.queraPurple : "transparent",
+              color: active ? "#fff" : palette.textSecondary,
+              fontSize: 11.5,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function SwitchToggle({
   label,
