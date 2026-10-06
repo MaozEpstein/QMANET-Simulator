@@ -41,6 +41,7 @@ import networkx as nx
 
 from .clique_to_mis import Graph, to_networkx
 from .clique_to_mis import complement as graph_complement
+from .throughput_bounds import best_coloring, max_clique_exact
 
 ConflictMode = Literal["bidirectional", "unidirectional"]
 
@@ -68,8 +69,10 @@ def solve_sweep_point(
     connectivity: Graph,
     interference_radius: float,
     mode: ConflictMode = "bidirectional",
-) -> int:
-    """|MIS(F)| at one R' value. Module-level (not a closure) so it can be
+) -> tuple[int, int, int]:
+    """(|MIS(F)|, ω(F), colors in the best greedy coloring of F) at one R'
+    value — the last two give the throughput bounds band 1/χ..1/ω (see
+    pipeline.throughput_bounds). Module-level (not a closure) so it can be
     submitted to a ProcessPoolExecutor, which pickles the callable — see
     SWEEP_POINT_TIMEOUT_S's doc comment for why the caller runs this out of
     process with a timeout instead of calling it directly.
@@ -80,9 +83,12 @@ def solve_sweep_point(
     plus the timeout above.
     """
     result = build_conflict_graph(connectivity, interference_radius, mode)
-    G = to_networkx(result.conflict_graph_complement)
-    clique, _weight = nx.max_weight_clique(G, weight=None)
-    return len(clique)
+    Gbar = to_networkx(result.conflict_graph_complement)
+    mis, _weight = nx.max_weight_clique(Gbar, weight=None)
+    F = to_networkx(result.conflict_graph)
+    coloring, _ = best_coloring(F)
+    chi = max(coloring) + 1 if coloring else 0
+    return len(mis), len(max_clique_exact(F)), chi
 
 
 @dataclass

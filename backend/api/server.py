@@ -77,6 +77,10 @@ from api.models import (
     SweepDurationsRequest,
     SweepDurationsResponse,
     SweepPointDTO,
+    ThroughputBoundsDTO,
+    ThroughputBoundsRequest,
+    ThroughputBoundsResponse,
+    TimeShareSlotDTO,
     ViolationDTO,
 )
 from pipeline import clique_to_mis as cqm
@@ -88,6 +92,7 @@ from pipeline.conflict_graph import (
     compute_interference_breakpoints,
     solve_sweep_point,
 )
+from pipeline.throughput_bounds import BOUNDS_MAX_VERTICES, compute_throughput_bounds
 from pipeline.adiabatic_gap import GAP_MAX_ATOMS, compute_min_gap, compute_spectrum
 from pipeline.phase_diagram import PHASE_DIAGRAM_MAX_ATOMS, compute_phase_diagram
 from pipeline.classical_sa import SAConfig, simulated_annealing
@@ -323,11 +328,18 @@ def graph_conflict_sweep(req: InterferenceSweepRequest) -> InterferenceSweepResp
             for r in sampled:
                 future = executor.submit(solve_sweep_point, g, r, req.mode)
                 try:
-                    mis_size = future.result(timeout=SWEEP_POINT_TIMEOUT_S)
+                    mis_size, omega, chi_upper = future.result(timeout=SWEEP_POINT_TIMEOUT_S)
                 except FutureTimeoutError:
                     timed_out = True
                     break
-                points.append(InterferenceSweepPointDTO(interference_radius=r, mis_size=mis_size))
+                points.append(
+                    InterferenceSweepPointDTO(
+                        interference_radius=r,
+                        mis_size=mis_size,
+                        omega=omega,
+                        chi_upper=chi_upper,
+                    )
+                )
         finally:
             # A timed-out task keeps running in its worker process — a plain
             # shutdown(wait=True) (what the executor's own __exit__ would do)
@@ -347,6 +359,42 @@ def graph_conflict_sweep(req: InterferenceSweepRequest) -> InterferenceSweepResp
         max_links=SWEEP_MAX_LINKS,
         n_breakpoints_total=n_total,
         timed_out=timed_out,
+    )
+
+
+@app.post("/api/graph/conflict/bounds", response_model=ThroughputBoundsResponse)
+def graph_conflict_bounds(req: ThroughputBoundsRequest) -> ThroughputBoundsResponse:
+    """Classical uniform-rate throughput bounds on conflict graph F
+    (Jain et al. 2003 §4): 1/χ ≤ 1/χ_f ≤ 1/ω — see
+    ``pipeline.throughput_bounds``. Like the sweep, an oversized F returns
+    ``bounds=None`` rather than a 422 since this is an optional analysis aid."""
+    f = _dto_to_graph(req.graph)
+    if f.n_nodes > BOUNDS_MAX_VERTICES:
+        return ThroughputBoundsResponse(
+            bounds=None, n_vertices=f.n_nodes, max_vertices=BOUNDS_MAX_VERTICES
+        )
+    b = compute_throughput_bounds(f)
+    return ThroughputBoundsResponse(
+        bounds=ThroughputBoundsDTO(
+            omega=b.omega,
+            max_clique=b.max_clique,
+            chi=b.chi,
+            chi_exact=b.chi_exact,
+            coloring=b.coloring,
+            coloring_strategy=b.coloring_strategy,
+            chi_f=b.chi_f,
+            chi_f_lower=b.chi_f_lower,
+            chi_f_exact=b.chi_f_exact,
+            lp_schedule=[TimeShareSlotDTO(links=s.links, fraction=s.fraction) for s in b.lp_schedule],
+            lp_iterations=b.lp_iterations,
+            lp_columns=b.lp_columns,
+            exact_pricing=b.exact_pricing,
+            lower_bound=b.lower_bound,
+            lp_bound=b.lp_bound,
+            upper_bound=b.upper_bound,
+        ),
+        n_vertices=f.n_nodes,
+        max_vertices=BOUNDS_MAX_VERTICES,
     )
 
 

@@ -68,6 +68,49 @@ class InterferenceSweepRequest(BaseModel):
 class InterferenceSweepPointDTO(BaseModel):
     interference_radius: float
     mis_size: int
+    omega: int | None = None
+    """ω(F) at this R' — throughput upper bound is 1/omega."""
+    chi_upper: int | None = None
+    """Colors used by the best greedy coloring of F — lower bound is 1/chi_upper."""
+
+
+class ThroughputBoundsRequest(BaseModel):
+    graph: GraphDTO
+    """The conflict graph F itself (not F̄)."""
+
+
+class TimeShareSlotDTO(BaseModel):
+    links: list[int]
+    fraction: float
+
+
+class ThroughputBoundsDTO(BaseModel):
+    omega: int
+    max_clique: list[int]
+    chi: int
+    chi_exact: bool
+    coloring: list[int]
+    coloring_strategy: str
+    chi_f: float
+    chi_f_lower: float
+    chi_f_exact: bool
+    lp_schedule: list[TimeShareSlotDTO]
+    lp_iterations: int
+    lp_columns: int
+    exact_pricing: bool
+    lower_bound: float
+    """1/χ — every link gets this rate under the coloring's TDMA frame."""
+    lp_bound: float
+    """1/χ_f(best found) — rate under the LP time-share schedule; exact when chi_f_exact."""
+    upper_bound: float
+    """1/ω — no schedule can give every link more than this."""
+
+
+class ThroughputBoundsResponse(BaseModel):
+    bounds: ThroughputBoundsDTO | None
+    """null when F has more than max_vertices vertices."""
+    n_vertices: int
+    max_vertices: int
 
 
 class InterferenceSweepResponse(BaseModel):

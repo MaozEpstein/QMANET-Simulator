@@ -11,6 +11,7 @@ import { GraphView } from "../components/GraphView";
 import { InfoButton } from "../components/InfoButton";
 import { InterferenceSweepChart } from "../components/InterferenceSweepChart";
 import { Panel } from "../components/Panel";
+import { ThroughputBoundsPanel } from "../components/ThroughputBoundsPanel";
 import { selectStaleStages, usePipeline, useCommitManet, type MisTrack } from "../store/pipeline";
 import { StaleBanner } from "../components/StaleBanner";
 import { palette } from "../theme/palette";
@@ -343,6 +344,17 @@ export function Stage2_Complement() {
           editMsg={editMsg}
           onNodeClick={handleManetNodeClick}
           onEdgeClick={handleManetEdgeClick}
+        />
+      )}
+
+      {isConflict && (
+        <ThroughputBoundsPanel
+          manetGraph={manet.graph}
+          conflictGraph={conflictGraph}
+          conflictMode={conflictMode}
+          interferenceRadius={interferenceRadius}
+          onInterferenceRadiusChange={setInterferenceRadius}
+          linkLabel={linkLabel}
         />
       )}
 

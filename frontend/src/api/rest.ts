@@ -101,6 +101,46 @@ export interface InterferenceSweepRequest {
 export interface InterferenceSweepPoint {
   interference_radius: number;
   mis_size: number;
+  /** ω(F) at this R' — throughput upper bound 1/ω. Absent on older backends. */
+  omega?: number | null;
+  /** Colors in the best greedy coloring of F — throughput lower bound 1/χ. */
+  chi_upper?: number | null;
+}
+
+export interface TimeShareSlot {
+  /** F-vertex ids (directed links) active together in this slot. */
+  links: number[];
+  /** Share of the TDMA frame; all slots sum to 1. */
+  fraction: number;
+}
+
+/** Uniform-rate throughput bounds on conflict graph F (Jain et al. 2003 §4):
+ * lower_bound = 1/χ ≤ lp_bound = 1/χ_f ≤ upper_bound = 1/ω. */
+export interface ThroughputBounds {
+  omega: number;
+  max_clique: number[];
+  chi: number;
+  chi_exact: boolean;
+  /** coloring[v] = color (TDMA slot) of F-vertex v. */
+  coloring: number[];
+  coloring_strategy: string;
+  chi_f: number;
+  chi_f_lower: number;
+  chi_f_exact: boolean;
+  lp_schedule: TimeShareSlot[];
+  lp_iterations: number;
+  lp_columns: number;
+  exact_pricing: boolean;
+  lower_bound: number;
+  lp_bound: number;
+  upper_bound: number;
+}
+
+export interface ThroughputBoundsResponse {
+  /** null when F exceeds max_vertices. */
+  bounds: ThroughputBounds | null;
+  n_vertices: number;
+  max_vertices: number;
 }
 
 export interface InterferenceSweepResponse {
@@ -495,6 +535,10 @@ export const api = {
       "/api/graph/conflict/sweep",
       { graph, max_points, mode },
     ),
+  throughputBounds: (conflictGraph: GraphDTO) =>
+    postJSON<{ graph: GraphDTO }, ThroughputBoundsResponse>("/api/graph/conflict/bounds", {
+      graph: conflictGraph,
+    }),
   embed: (req: EmbedRequest) => postJSON<EmbedRequest, EmbedResponse>("/api/embed/atoms", req),
   embedRecompute: (req: EmbedRecomputeRequest) =>
     postJSON<EmbedRecomputeRequest, EmbedResponse>("/api/embed/recompute", req),

@@ -19,7 +19,7 @@ def _hang_forever(_connectivity, _interference_radius, _mode="bidirectional"):
     """Stand-in for solve_sweep_point that never returns — module-level (not
     a closure) so it's picklable for submission to a real subprocess."""
     time.sleep(30)
-    return 0
+    return 0, 0, 0
 
 
 def _two_disjoint_links_payload() -> dict:

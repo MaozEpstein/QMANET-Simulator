@@ -53,6 +53,9 @@ interface Props {
    * link, so it should read as one. Defaults to the bare numeric id.
    */
   nodeLabel?: (id: number) => string;
+  /** Per-node fill (e.g. a graph coloring). Nodes it returns a color for are
+   * drawn in that color at full strength; others are dimmed like non-highlighted nodes. */
+  nodeColor?: (id: number) => string | undefined;
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -85,6 +88,7 @@ export function GraphView({
   showDegrees = false,
   degreeEdges,
   nodeLabel,
+  nodeColor,
 }: Props) {
   const hiColor = highlightColor ?? palette.highlight;
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -174,7 +178,7 @@ export function GraphView({
     }
 
     // Links
-    const hasHighlight = !!highlight && highlight.size > 0;
+    const hasHighlight = (!!highlight && highlight.size > 0) || !!nodeColor;
     const isCliqueEdge = (d: SimLink) =>
       emphasizeHighlightedEdges &&
       !!highlight &&
@@ -245,7 +249,10 @@ export function GraphView({
 
     const isSelected = (id: number) =>
       selectedNode !== null && selectedNode !== undefined && id === selectedNode;
-    const isHighlighted = (id: number) => !!highlight && highlight.has(id);
+    const customColor = (id: number) => nodeColor?.(id);
+    const isHighlighted = (id: number) =>
+      (!!highlight && highlight.has(id)) || customColor(id) !== undefined;
+    const ringColor = (id: number) => customColor(id) ?? hiColor;
 
     // Thick outer ring on highlighted nodes — a shape cue on top of the color
     // cue, so the marking survives poor color discrimination.
@@ -254,7 +261,7 @@ export function GraphView({
       .append("circle")
       .attr("r", 15)
       .attr("fill", "none")
-      .attr("stroke", hiColor)
+      .attr("stroke", (d) => ringColor(d.id))
       .attr("stroke-width", 2.5)
       .attr("stroke-opacity", 0.9)
       .attr("pointer-events", "none");
@@ -264,7 +271,7 @@ export function GraphView({
       .append("circle")
       .attr("r", (d) => (isSelected(d.id) ? baseR + 4 : isHighlighted(d.id) ? baseR + 3 : baseR))
       .attr("fill", (d) =>
-        isSelected(d.id) ? palette.warn : isHighlighted(d.id) ? hiColor : palette.atomGround,
+        isSelected(d.id) ? palette.warn : isHighlighted(d.id) ? ringColor(d.id) : palette.atomGround,
       )
       .attr("stroke", (d) =>
         isSelected(d.id) || isHighlighted(d.id) ? "#fff" : palette.queraPurpleSoft,
@@ -466,6 +473,7 @@ export function GraphView({
     showDegrees,
     degrees,
     nodeLabel,
+    nodeColor,
   ]);
 
   return (
