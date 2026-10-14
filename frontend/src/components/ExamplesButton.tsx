@@ -11,7 +11,8 @@
  * after we decide which graphs make the cut.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { matchesExampleQuery } from "../lib/exampleSearch";
 import { api } from "../api/rest";
 import {
   buildApStarExample,
@@ -614,11 +615,14 @@ export function ExamplesButton() {
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [savedTick, setSavedTick] = useState(0);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const refreshSaved = useCallback(() => setSavedTick((t) => t + 1), []);
   const close = useCallback(() => {
     if (loadingStep) return; // don't dismiss mid-load
     setOpen(false);
     setLoadErr(null);
+    setQuery("");
   }, [loadingStep]);
   const {
     setManet,
@@ -705,6 +709,7 @@ export function ExamplesButton() {
 
         setStage("manet");
         setOpen(false);
+        setQuery("");
       } catch (e) {
         setLoadErr((e as Error).message);
       } finally {
@@ -729,11 +734,29 @@ export function ExamplesButton() {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key !== "Escape") return;
+      if (query) setQuery("");
+      else close();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, close]);
+  }, [open, close, query]);
+
+  useEffect(() => {
+    if (open) searchRef.current?.focus();
+  }, [open]);
+
+  const sections = useMemo(
+    () =>
+      CATEGORIES.map((cat) => {
+        const all =
+          cat.id === "myGraphs" ? savedAsExamples : EXAMPLES.filter((e) => e.category === cat.id);
+        return { cat, items: all.filter((e) => matchesExampleQuery(e, query, cat.title)) };
+      }),
+    [savedAsExamples, query],
+  );
+  const searching = query.trim() !== "";
+  const nMatches = sections.reduce((acc, s) => acc + s.items.length, 0);
 
   const handleDeleteSaved = useCallback(
     (saved: SavedGraph) => {
@@ -793,10 +816,10 @@ export function ExamplesButton() {
             background: "rgba(2, 5, 14, 0.78)",
             backdropFilter: "blur(4px)",
             display: "flex",
-            alignItems: "center",
+            alignItems: "flex-start",
             justifyContent: "center",
             zIndex: 1000,
-            padding: 20,
+            padding: "5vh 20px 20px",
           }}
         >
           <div
@@ -830,7 +853,13 @@ export function ExamplesButton() {
                   בחירה מהירה של דאטהסט קלאסי כדי לראות את הצינור בפעולה. ליצירה ידנית — חזרה לשלב 1.
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <SearchBox
+                  inputRef={searchRef}
+                  value={query}
+                  onChange={setQuery}
+                  resultCount={searching ? nMatches : null}
+                />
                 <button
                   onClick={close}
                   aria-label="סגור"
@@ -871,12 +900,25 @@ export function ExamplesButton() {
               </div>
             )}
 
+            {searching && nMatches === 0 && (
+              <div
+                style={{
+                  padding: "36px 16px",
+                  textAlign: "center",
+                  color: palette.textMuted,
+                  fontSize: 13.5,
+                  border: `1px dashed ${palette.queraPurpleSoft}`,
+                  borderRadius: 10,
+                }}
+              >
+                לא נמצאו דוגמות עבור „{query.trim()}". נסה שם בעברית/אנגלית, שם מאמר, או גודל (למשל
+                n=10).
+              </div>
+            )}
+
             <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-                {CATEGORIES.map((cat) => {
-                  const items =
-                    cat.id === "myGraphs"
-                      ? savedAsExamples
-                      : EXAMPLES.filter((e) => e.category === cat.id);
+                {sections.map(({ cat, items }) => {
+                  if (searching && items.length === 0) return null;
                   return (
                     <section key={cat.id}>
                       <div style={{ marginBottom: 10 }}>
@@ -1081,6 +1123,93 @@ function cardSecondaryBtn(isLoading: boolean): React.CSSProperties {
     cursor: isLoading ? "not-allowed" : "pointer",
     opacity: isLoading ? 0.5 : 1,
   };
+}
+
+function SearchBox({
+  inputRef,
+  value,
+  onChange,
+  resultCount,
+}: {
+  inputRef: React.RefObject<HTMLInputElement>;
+  value: string;
+  onChange: (v: string) => void;
+  resultCount: number | null;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        width: 340,
+        padding: "0 10px",
+        height: 34,
+        borderRadius: 8,
+        background: palette.bgInset,
+        border: `1px solid ${focused ? palette.queraPurpleGlow : palette.queraPurpleSoft}`,
+        boxShadow: focused ? `0 0 0 3px ${palette.queraPurple}44` : "none",
+        transition: "all 150ms ease",
+      }}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" stroke={palette.textMuted} strokeWidth="2" />
+        <path d="M20 20l-3.5-3.5" stroke={palette.textMuted} strokeWidth="2" strokeLinecap="round" />
+      </svg>
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="חיפוש דוגמה — שם, מאמר, n=10…"
+        aria-label="חיפוש דוגמה"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          border: "none",
+          outline: "none",
+          background: "transparent",
+          color: palette.textPrimary,
+          fontSize: 13,
+        }}
+      />
+      {resultCount !== null && (
+        <span
+          style={{
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+            color: resultCount ? palette.queraPurpleGlow : palette.err,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {resultCount === 1 ? "תוצאה אחת" : `${resultCount} תוצאות`}
+        </span>
+      )}
+      {value && (
+        <button
+          onClick={() => {
+            onChange("");
+            inputRef.current?.focus();
+          }}
+          aria-label="נקה חיפוש"
+          style={{
+            border: "none",
+            background: "transparent",
+            color: palette.textMuted,
+            cursor: "pointer",
+            fontSize: 14,
+            padding: 0,
+            lineHeight: 1,
+          }}
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
 }
 
 function EmptySlot({ hint }: { hint?: string }) {
