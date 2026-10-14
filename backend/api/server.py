@@ -31,6 +31,9 @@ from api.models import (
     BraketSubmitRequest,
     BraketSubmitResponse,
     ComplementRequest,
+    ConvergencePointDTO,
+    ConvergenceRequest,
+    ConvergenceResponse,
     ConflictGraphRequest,
     ConflictGraphResponse,
     InterferenceSweepPointDTO,
@@ -92,7 +95,11 @@ from pipeline.conflict_graph import (
     compute_interference_breakpoints,
     solve_sweep_point,
 )
-from pipeline.throughput_bounds import BOUNDS_MAX_VERTICES, compute_throughput_bounds
+from pipeline.throughput_bounds import (
+    BOUNDS_MAX_VERTICES,
+    compute_throughput_bounds,
+    convergence_trace,
+)
 from pipeline.adiabatic_gap import GAP_MAX_ATOMS, compute_min_gap, compute_spectrum
 from pipeline.phase_diagram import PHASE_DIAGRAM_MAX_ATOMS, compute_phase_diagram
 from pipeline.classical_sa import SAConfig, simulated_annealing
@@ -393,6 +400,35 @@ def graph_conflict_bounds(req: ThroughputBoundsRequest) -> ThroughputBoundsRespo
             lp_bound=b.lp_bound,
             upper_bound=b.upper_bound,
         ),
+        n_vertices=f.n_nodes,
+        max_vertices=BOUNDS_MAX_VERTICES,
+    )
+
+
+@app.post("/api/graph/conflict/convergence", response_model=ConvergenceResponse)
+def graph_conflict_convergence(req: ConvergenceRequest) -> ConvergenceResponse:
+    """Bounds vs. Effort (Jain et al. 2003 Fig 5): one point per MWIS oracle
+    call of the column-generation LP — see
+    ``pipeline.throughput_bounds.convergence_trace``."""
+    f = _dto_to_graph(req.graph)
+    if f.n_nodes == 0 or f.n_nodes > BOUNDS_MAX_VERTICES:
+        return ConvergenceResponse(
+            points=None, omega=None, stop_reason=None, certified=False,
+            exact_pricing=False, n_vertices=f.n_nodes, max_vertices=BOUNDS_MAX_VERTICES,
+        )
+    omega, cg = convergence_trace(f, req.start)
+    return ConvergenceResponse(
+        points=[
+            ConvergencePointDTO(
+                calls=p.calls, time_ms=p.time_ms, lp_value=p.lp_value, lower=p.lower,
+                upper=p.upper, added=p.added, pricer=p.pricer,
+            )
+            for p in cg.history
+        ],
+        omega=omega,
+        stop_reason=cg.stop_reason,
+        certified=cg.exact,
+        exact_pricing=cg.exact_pricing,
         n_vertices=f.n_nodes,
         max_vertices=BOUNDS_MAX_VERTICES,
     )

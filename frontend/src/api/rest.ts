@@ -136,6 +136,34 @@ export interface ThroughputBounds {
   upper_bound: number;
 }
 
+export type ConvergenceStart = "singletons" | "coloring";
+
+/** One MWIS oracle call of the column-generation LP (Jain et al. Fig 5). */
+export interface ConvergencePoint {
+  /** MWIS oracle calls so far — the Effort axis. */
+  calls: number;
+  /** Cumulative wall-clock time (ms), including master LP solves. */
+  time_ms: number;
+  lp_value: number;
+  /** 1/lp_value — rate guaranteed by the current schedule. */
+  lower: number;
+  /** min(1/ω, Lagrangian bound) — no schedule can beat this. */
+  upper: number;
+  /** Independent set (F-vertex ids) added after this call; null at start/final. */
+  added: number[] | null;
+  pricer: "start" | "greedy" | "exact";
+}
+
+export interface ConvergenceResponse {
+  points: ConvergencePoint[] | null;
+  omega: number | null;
+  stop_reason: "optimal" | "no_improving_column" | "time_budget" | "iteration_cap" | null;
+  certified: boolean;
+  exact_pricing: boolean;
+  n_vertices: number;
+  max_vertices: number;
+}
+
 export interface ThroughputBoundsResponse {
   /** null when F exceeds max_vertices. */
   bounds: ThroughputBounds | null;
@@ -534,6 +562,11 @@ export const api = {
     postJSON<InterferenceSweepRequest, InterferenceSweepResponse>(
       "/api/graph/conflict/sweep",
       { graph, max_points, mode },
+    ),
+  throughputConvergence: (conflictGraph: GraphDTO, start: ConvergenceStart) =>
+    postJSON<{ graph: GraphDTO; start: ConvergenceStart }, ConvergenceResponse>(
+      "/api/graph/conflict/convergence",
+      { graph: conflictGraph, start },
     ),
   throughputBounds: (conflictGraph: GraphDTO) =>
     postJSON<{ graph: GraphDTO }, ThroughputBoundsResponse>("/api/graph/conflict/bounds", {

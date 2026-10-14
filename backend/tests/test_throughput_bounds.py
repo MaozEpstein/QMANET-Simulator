@@ -111,3 +111,45 @@ def test_api_returns_null_above_cap():
     body = r.json()
     assert body["bounds"] is None
     assert body["max_vertices"] == BOUNDS_MAX_VERTICES
+
+
+@pytest.mark.parametrize("start", ["singletons", "coloring"])
+def test_convergence_trace_is_monotone_and_meets(start):
+    from pipeline.throughput_bounds import convergence_trace
+
+    f = _g(nx.mycielski_graph(4))
+    omega, cg = convergence_trace(f, start)
+    pts = cg.history
+    assert pts[0].calls == 0 and pts[0].pricer == "start"
+    assert [p.calls for p in pts] == sorted(p.calls for p in pts)
+    for a, b in zip(pts, pts[1:]):
+        assert b.lower >= a.lower - 1e-9
+        assert b.upper <= a.upper + 1e-9
+    for p in pts:
+        assert p.lower <= p.upper + 1e-9 <= 1 / omega + 2e-9
+    assert cg.exact and cg.stop_reason == "optimal"
+    assert pts[-1].lower == pytest.approx(1 / 2.9) and pts[-1].upper == pytest.approx(1 / 2.9)
+    for p in pts:
+        if p.added is not None:
+            assert is_independent_set(f, p.added)
+
+
+def test_singletons_start_begins_at_one_over_n():
+    from pipeline.throughput_bounds import convergence_trace
+
+    _, cg = convergence_trace(_g(nx.cycle_graph(5)), "singletons")
+    assert cg.history[0].lower == pytest.approx(1 / 5)
+
+
+def test_convergence_api():
+    G = nx.cycle_graph(5)
+    payload = {"graph": {"n_nodes": 5, "edges": [list(e) for e in G.edges]}, "start": "coloring"}
+    body = client.post("/api/graph/conflict/convergence", json=payload).json()
+    assert body["omega"] == 2 and body["certified"] is True
+    assert body["points"][0]["lower"] == pytest.approx(1 / 3)
+    assert body["points"][-1]["lower"] == pytest.approx(0.4)
+    big = client.post(
+        "/api/graph/conflict/convergence",
+        json={"graph": {"n_nodes": BOUNDS_MAX_VERTICES + 1, "edges": []}},
+    ).json()
+    assert big["points"] is None

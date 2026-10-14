@@ -106,6 +106,33 @@ class ThroughputBoundsDTO(BaseModel):
     """1/ω — no schedule can give every link more than this."""
 
 
+class ConvergenceRequest(BaseModel):
+    graph: GraphDTO
+    """The conflict graph F itself (not F̄)."""
+    start: Literal["singletons", "coloring"] = "singletons"
+
+
+class ConvergencePointDTO(BaseModel):
+    calls: int
+    time_ms: float
+    lp_value: float
+    lower: float
+    upper: float
+    added: list[int] | None
+    pricer: Literal["start", "greedy", "exact"]
+
+
+class ConvergenceResponse(BaseModel):
+    points: list[ConvergencePointDTO] | None
+    """null when F has more than max_vertices vertices."""
+    omega: int | None
+    stop_reason: str | None
+    certified: bool
+    exact_pricing: bool
+    n_vertices: int
+    max_vertices: int
+
+
 class ThroughputBoundsResponse(BaseModel):
     bounds: ThroughputBoundsDTO | None
     """null when F has more than max_vertices vertices."""

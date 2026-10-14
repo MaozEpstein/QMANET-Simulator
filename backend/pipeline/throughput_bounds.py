@@ -177,23 +177,60 @@ def _solve_master(columns: list[frozenset[int]], n: int):
     return float(res.fun), np.asarray(res.x, dtype=float), np.clip(duals, 0.0, None)
 
 
+@dataclass
+class ConvergencePoint:
+    calls: int
+    """MWIS oracle calls (pricing rounds) made so far — the Effort axis."""
+    time_ms: float
+    """Cumulative wall-clock time including master LP solves."""
+    lp_value: float
+    """Σy of the restricted master LP — an upper bound on χ_f."""
+    lower: float
+    """Throughput lower bound 1/lp_value: the current schedule is feasible."""
+    upper: float
+    """Best certified throughput upper bound: min(1/ω, Lagrangian bound)."""
+    added: list[int] | None
+    """Independent set added after this call; None for the start and final points."""
+    pricer: str
+    """'start', 'greedy' or 'exact' — which oracle answered this call."""
+
+
+@dataclass
+class ColumnGenerationResult:
+    value: float
+    certified_lower: float
+    exact: bool
+    schedule: list[TimeShareSlot]
+    iterations: int
+    n_columns: int
+    exact_pricing: bool
+    history: list[ConvergencePoint]
+    stop_reason: str
+    """'optimal' | 'no_improving_column' | 'time_budget' | 'iteration_cap'."""
+
+
 def fractional_chromatic(
     G: nx.Graph,
     initial_sets: list[set[int]],
     omega: int,
     *,
+    extend_initial: bool = True,
     time_budget_s: float = CG_TIME_BUDGET_S,
     exact_pricing_max: int = EXACT_PRICING_MAX_VERTICES,
-):
-    """Column generation for χ_f(G). Returns
-    (value, certified_lower, exact, schedule, iterations, n_columns, exact_pricing)."""
+) -> ColumnGenerationResult:
+    """Column generation for χ_f(G), recording one convergence point per
+    MWIS oracle call. ``extend_initial=False`` keeps the initial sets as
+    given (e.g. singletons, to start the curve near zero like Jain et al.
+    Fig 5) instead of growing them to maximal independent sets."""
+    t0 = time.perf_counter()
+    elapsed_ms = lambda: (time.perf_counter() - t0) * 1000.0  # noqa: E731
     n = G.number_of_nodes()
     adj = [set(int(u) for u in G.neighbors(v)) for v in range(n)]
     natural = list(range(n))
     columns: list[frozenset[int]] = []
     seen: set[frozenset[int]] = set()
     for s in initial_sets:
-        col = frozenset(_extend_to_maximal(adj, s, natural))
+        col = frozenset(_extend_to_maximal(adj, s, natural) if extend_initial else s)
         if col not in seen:
             seen.add(col)
             columns.append(col)
@@ -203,29 +240,50 @@ def fractional_chromatic(
     deadline = time.monotonic() + time_budget_s
     lower = float(omega)
     exact = False
-    iterations = 0
-    value, y = 0.0, np.zeros(0)
+    calls = 0
 
-    while True:
-        iterations += 1
-        value, y, duals = _solve_master(columns, n)
+    value, y, duals = _solve_master(columns, n)
+    history = [
+        ConvergencePoint(0, elapsed_ms(), value, 1.0 / value, 1.0 / omega, None, "start")
+    ]
+    stop_reason = "iteration_cap"
+
+    while calls < CG_MAX_ITERATIONS:
+        if time.monotonic() >= deadline:
+            stop_reason = "time_budget"
+            break
+        calls += 1
         cand, price = _greedy_mwis(adj, duals)
-        if price <= 1.0 + _PRICE_EPS and use_exact and time.monotonic() < deadline:
+        pricer = "greedy"
+        if price <= 1.0 + _PRICE_EPS and use_exact:
             assert Fbar is not None
             cand, price = _exact_mwis(Fbar, duals)
-            if price > 0:
-                lower = max(lower, value / max(price, 1.0))
-            if price <= 1.0 + _PRICE_EPS:
+            pricer = "exact"
+            # Weak duality: duals/price is dual-feasible, so χ_f ≥ value/price.
+            lower = max(lower, value / max(price, 1.0))
+        if price <= 1.0 + _PRICE_EPS:
+            if pricer == "exact":
                 exact = True
                 lower = value
-                break
-        elif price <= 1.0 + _PRICE_EPS:
+                stop_reason = "optimal"
+            else:
+                stop_reason = "no_improving_column"
+            history.append(
+                ConvergencePoint(calls, elapsed_ms(), value, 1.0 / value, 1.0 / lower, None, pricer)
+            )
             break
         col = frozenset(_extend_to_maximal(adj, cand, sorted(natural, key=lambda v: -duals[v])))
-        if col in seen or iterations >= CG_MAX_ITERATIONS or time.monotonic() >= deadline:
+        if col in seen:
+            stop_reason = "no_improving_column"
             break
         seen.add(col)
         columns.append(col)
+        value, y, duals = _solve_master(columns, n)
+        history.append(
+            ConvergencePoint(
+                calls, elapsed_ms(), value, 1.0 / value, 1.0 / lower, sorted(col), pricer
+            )
+        )
 
     total = float(y.sum()) or 1.0
     schedule = [
@@ -233,7 +291,45 @@ def fractional_chromatic(
         for j in np.argsort(-y)
         if y[j] > 1e-9
     ]
-    return value, min(lower, value), exact, schedule, iterations, len(columns), use_exact
+    return ColumnGenerationResult(
+        value=value,
+        certified_lower=min(lower, value),
+        exact=exact,
+        schedule=schedule,
+        iterations=calls,
+        n_columns=len(columns),
+        exact_pricing=use_exact,
+        history=history,
+        stop_reason=stop_reason,
+    )
+
+
+def convergence_trace(
+    f: Graph, start: str = "singletons"
+) -> tuple[int, ColumnGenerationResult]:
+    """Effort curve for F (Jain et al. Fig 5 style). ``start='singletons'``
+    begins with one set per link (lower bound 1/n, near zero);
+    ``start='coloring'`` begins from the best greedy coloring (1/χ).
+    Returns (ω, result). Raises ValueError above BOUNDS_MAX_VERTICES."""
+    n = f.n_nodes
+    if n == 0:
+        raise ValueError("Conflict graph is empty.")
+    if n > BOUNDS_MAX_VERTICES:
+        raise ValueError(
+            f"Convergence trace supported up to {BOUNDS_MAX_VERTICES} conflict-graph "
+            f"vertices (got {n})."
+        )
+    G = to_networkx(f)
+    omega = len(max_clique_exact(G))
+    if start == "coloring":
+        coloring, _ = best_coloring(G)
+        classes: dict[int, set[int]] = {}
+        for v, c in enumerate(coloring):
+            classes.setdefault(c, set()).add(v)
+        initial, extend = list(classes.values()), True
+    else:
+        initial, extend = [{v} for v in range(n)], False
+    return omega, fractional_chromatic(G, initial, omega, extend_initial=extend)
 
 
 def compute_throughput_bounds(f: Graph) -> ThroughputBounds:
@@ -269,8 +365,10 @@ def compute_throughput_bounds(f: Graph) -> ThroughputBounds:
             TimeShareSlot(links=sorted(classes[c]), fraction=1.0 / chi) for c in sorted(classes)
         ]
     else:
-        chi_f, chi_f_lower, chi_f_exact, schedule, iters, n_cols, exact_pricing = (
-            fractional_chromatic(G, list(classes.values()), omega)
+        cg = fractional_chromatic(G, list(classes.values()), omega)
+        chi_f, chi_f_lower, chi_f_exact = cg.value, cg.certified_lower, cg.exact
+        schedule, iters, n_cols, exact_pricing = (
+            cg.schedule, cg.iterations, cg.n_columns, cg.exact_pricing
         )
 
     return ThroughputBounds(

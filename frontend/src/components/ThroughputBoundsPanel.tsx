@@ -32,6 +32,7 @@ import {
   type BoundsView,
 } from "../lib/throughputBounds";
 import { BOUND_COLORS, BoundsBandChart } from "./BoundsBandChart";
+import { ConvergenceSection } from "./ConvergenceSection";
 import { GraphView } from "./GraphView";
 import { InfoButton } from "./InfoButton";
 import { Panel } from "./Panel";
@@ -80,6 +81,7 @@ export function ThroughputBoundsPanel({
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<BoundsView>("lp");
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
+  const [focus, setFocus] = useState<FocusSet | null>(null);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -88,6 +90,7 @@ export function ThroughputBoundsPanel({
     setRes(null);
     setErr(null);
     setActiveSlot(null);
+    setFocus(null);
     setLoading(true);
     api
       .throughputBounds(conflictGraph.conflict_graph)
@@ -139,6 +142,7 @@ export function ThroughputBoundsPanel({
               onClick={() => {
                 setView("coloring");
                 setActiveSlot(null);
+                setFocus(null);
               }}
               color={BOUND_COLORS.lower}
               role="חסם תחתון"
@@ -152,6 +156,7 @@ export function ThroughputBoundsPanel({
               onClick={() => {
                 setView("lp");
                 setActiveSlot(null);
+                setFocus(null);
               }}
               color={BOUND_COLORS.exact}
               role={bounds.chi_f_exact ? "ערך מדויק" : "חסם תחתון משופר"}
@@ -169,6 +174,7 @@ export function ThroughputBoundsPanel({
               onClick={() => {
                 setView("clique");
                 setActiveSlot(null);
+                setFocus(null);
               }}
               color={BOUND_COLORS.upper}
               role="חסם עליון"
@@ -185,7 +191,11 @@ export function ThroughputBoundsPanel({
             activeSlot={activeSlot}
             onSlotChange={setActiveSlot}
             linkLabel={linkLabel}
+            focus={focus}
+            onClearFocus={() => setFocus(null)}
           />
+
+          <ConvergenceSection f={f} linkLabel={linkLabel} onFocusSet={setFocus} />
 
           <BandSection
             manetGraph={manetGraph}
@@ -578,6 +588,8 @@ function CertificateView({
   activeSlot,
   onSlotChange,
   linkLabel,
+  focus,
+  onClearFocus,
 }: {
   bounds: ThroughputBounds;
   f: GraphDTO;
@@ -585,6 +597,8 @@ function CertificateView({
   activeSlot: number | null;
   onSlotChange: (i: number | null) => void;
   linkLabel?: (id: number) => string;
+  focus: FocusSet | null;
+  onClearFocus: () => void;
 }) {
   const slots = useMemo(() => slotsForView(bounds, view), [bounds, view]);
   const color = VIEW_COLOR[view];
@@ -594,32 +608,37 @@ function CertificateView({
   const shownSlot = activeSlot ?? (view !== "clique" && !fullPalette ? 0 : null);
 
   const highlight = useMemo(() => {
+    if (focus) return new Set(focus.links);
     if (shownSlot !== null && slots[shownSlot]) return new Set(slots[shownSlot].links);
     if (view === "clique") return new Set(bounds.max_clique);
     return new Set<number>();
-  }, [view, bounds, shownSlot, slots]);
+  }, [view, bounds, shownSlot, slots, focus]);
 
   // Full coloring on F only when no single slot is focused and hues suffice.
   const nodeColor = useMemo(() => {
-    if (view !== "coloring" || shownSlot !== null || !fullPalette) return undefined;
+    if (focus || view !== "coloring" || shownSlot !== null || !fullPalette) return undefined;
     const c = bounds.coloring;
     return (id: number) => (c[id] !== undefined ? SLOT_PALETTE[c[id]] : undefined);
-  }, [view, shownSlot, fullPalette, bounds]);
+  }, [view, shownSlot, fullPalette, bounds, focus]);
 
   const label = (v: number) => linkLabel?.(v) ?? String(v);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 18, alignItems: "start" }}>
       <div>
-        <div style={{ fontSize: 14, color: palette.textSecondary, marginBottom: 8 }}>
-          <b style={{ color }}>{viewTitle(view)}</b> — {viewHint(view, bounds)}
-        </div>
+        {focus ? (
+          <FocusBanner focus={focus} label={label} onClear={onClearFocus} />
+        ) : (
+          <div style={{ fontSize: 14, color: palette.textSecondary, marginBottom: 8 }}>
+            <b style={{ color }}>{viewTitle(view)}</b> — {viewHint(view, bounds)}
+          </div>
+        )}
         <GraphView
           graph={f}
           mode="geometric"
           highlight={highlight}
-          highlightColor={shownSlot !== null ? slotColor(shownSlot) : color}
-          emphasizeHighlightedEdges={view === "clique" && shownSlot === null}
+          highlightColor={focus ? BOUND_COLORS.exact : shownSlot !== null ? slotColor(shownSlot) : color}
+          emphasizeHighlightedEdges={!focus && view === "clique" && shownSlot === null}
           nodeColor={nodeColor}
           caption="F  (conflict graph)"
           width={620}
@@ -639,6 +658,60 @@ function CertificateView({
         />
         <ViewExplanation bounds={bounds} view={view} />
       </div>
+    </div>
+  );
+}
+
+interface FocusSet {
+  links: number[];
+  label: string;
+}
+
+function FocusBanner({
+  focus,
+  label,
+  onClear,
+}: {
+  focus: FocusSet;
+  label: (v: number) => string;
+  onClear: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 8,
+        padding: "5px 10px",
+        borderRadius: 8,
+        background: `${BOUND_COLORS.exact}18`,
+        border: `1px solid ${BOUND_COLORS.exact}66`,
+        fontSize: 13.5,
+        color: palette.textPrimary,
+      }}
+    >
+      <span style={{ width: 9, height: 9, borderRadius: "50%", background: BOUND_COLORS.exact, flexShrink: 0 }} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <b style={{ color: BOUND_COLORS.exact }}>{focus.label}</b>{" "}
+        <span dir="ltr" style={{ fontFamily: MONO, color: palette.textSecondary, fontSize: 12.5 }}>
+          {"{"} {focus.links.map(label).join(", ")} {"}"}
+        </span>
+      </span>
+      <button
+        onClick={onClear}
+        aria-label="נקה הדגשה"
+        style={{
+          border: "none",
+          background: "transparent",
+          color: palette.textSecondary,
+          cursor: "pointer",
+          fontSize: 15,
+          lineHeight: 1,
+        }}
+      >
+        ✕
+      </button>
     </div>
   );
 }
