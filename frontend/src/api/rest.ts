@@ -85,8 +85,8 @@ export interface ConflictGraphRequest {
 
 export interface ConflictGraphResponse {
   conflict_graph: GraphDTO;
-  /** Feed *this* (not conflict_graph) into api.complement() to get MIS(F)
-   * out of the existing pipeline — see the backend doc comment for why. */
+  /** Legacy — the conflict track no longer uses F̄ (it solves api.mis(F) and
+   * embeds F itself). Kept because the complement route is parked, not deleted. */
   conflict_graph_complement: GraphDTO;
   /** link_endpoints[k] = (i, j) — the input-graph edge conflict_graph's vertex k represents. */
   link_endpoints: [number, number][];
@@ -552,6 +552,11 @@ export const api = {
     postJSON<MANETRequest, MANETResponse>("/api/manet/generate", req),
   complement: (graph: GraphDTO) =>
     postJSON<{ graph: GraphDTO }, MISResponse>("/api/graph/complement", { graph }),
+  /** Conflict track: MIS solved directly on F. Same MISResponse shape as
+   * complement(), with `complement` = F (the graph Stage 3 embeds) and the
+   * clique fields holding independent sets of F — see backend `graph_mis`. */
+  mis: (graph: GraphDTO) =>
+    postJSON<{ graph: GraphDTO }, MISResponse>("/api/graph/mis", { graph }),
   conflictGraph: (graph: GraphDTO, interference_radius: number, mode?: ConflictMode) =>
     postJSON<ConflictGraphRequest, ConflictGraphResponse>("/api/graph/conflict", {
       graph,

@@ -80,7 +80,7 @@ describe("computeDirectStats", () => {
 });
 
 describe("computeConflictStats", () => {
-  it("chains conflictGraph() then complement() and returns ok stats", async () => {
+  it("chains conflictGraph() then mis() on F itself (no complement) and returns ok stats", async () => {
     fetchMock
       .mockResolvedValueOnce(
         ok({
@@ -109,6 +109,7 @@ describe("computeConflictStats", () => {
     const res = await computeConflictStats(triangle, 15);
     expect(res).toEqual({ ok: true, stats: { size: 1, alpha: 1, chromaticLo: 1, chromaticHi: 1 } });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/graph/mis");
   });
 
   it("returns an error result when the first (conflictGraph) call fails", async () => {

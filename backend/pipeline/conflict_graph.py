@@ -100,14 +100,10 @@ class ConflictGraphResult:
     of the same link share that midpoint."""
 
     conflict_graph_complement: Graph
-    """F̄ — complement of F. This, not F, is what gets fed into the existing
-    complement+MIS pipeline (``/api/graph/complement``): that pipeline always
-    reports ``clique(input)`` (which equals MIS(complement(input))), so
-    feeding F directly would report ``clique(F)`` — a maximal set of *mutually
-    conflicting* links, the opposite of what we want. Feeding F̄ instead makes
-    the pipeline report ``clique(F̄) = MIS(F)`` — the maximum set of links
-    schedulable simultaneously — while its `.complement` field comes back as
-    F itself, which Stage 3 then embeds (so the hardware solves MIS(F))."""
+    """F̄ — complement of F. Legacy: the conflict track no longer routes
+    through it. The path is C → F → MIS(F) (``/api/graph/mis``), and Stage 3
+    embeds F itself so the hardware solves MIS(F) directly. Still computed
+    because the complement route is parked, not deleted."""
 
     link_endpoints: list[tuple[int, int]]
     """link_endpoints[k] = (sender, receiver) — F's vertex k's direction.

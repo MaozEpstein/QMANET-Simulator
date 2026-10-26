@@ -35,6 +35,12 @@ class ComplementRequest(BaseModel):
     graph: GraphDTO
 
 
+class MISRequest(BaseModel):
+    """Solve MIS directly on ``graph`` (the conflict-track F)."""
+
+    graph: GraphDTO
+
+
 class ConflictGraphRequest(BaseModel):
     """Build the interference conflict graph F over the links of ``graph``.
 
@@ -50,9 +56,10 @@ class ConflictGraphResponse(BaseModel):
     conflict_graph: GraphDTO
     """F — one vertex per link of ``graph``."""
     conflict_graph_complement: GraphDTO
-    """F̄ — feed *this* (not ``conflict_graph``) into ``/api/graph/complement``
-    to get MIS(F) out of the existing complement+MIS pipeline. See
-    ``pipeline.conflict_graph.ConflictGraphResult`` for why."""
+    """F̄ — legacy, no longer on the conflict track's path (that goes
+    C → F → ``/api/graph/mis``, with F itself embedded on the atom array).
+    Kept, not deleted, because the complement route is parked rather than
+    abandoned for good."""
     link_endpoints: list[tuple[int, int]]
     """link_endpoints[k] = (i, j) — the input-graph edge F's vertex k represents."""
 

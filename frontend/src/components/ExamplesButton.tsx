@@ -693,7 +693,7 @@ export function ExamplesButton() {
         if (track === "conflict") {
           const cg = await api.conflictGraph(manet.graph, ir);
           setConflictGraph(cg);
-          mis = await api.complement(cg.conflict_graph_complement);
+          mis = await api.mis(cg.conflict_graph);
         } else {
           mis = await api.complement(manet.graph);
         }

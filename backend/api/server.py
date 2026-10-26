@@ -50,6 +50,7 @@ from api.models import (
     PhaseDiagramResponse,
     MANETRequest,
     MANETResponse,
+    MISRequest,
     MISResponse,
     MeasureRequest,
     MeasureResponse,
@@ -256,6 +257,52 @@ def graph_complement(req: ComplementRequest) -> MISResponse:
     )
 
 
+@app.post("/api/graph/mis", response_model=MISResponse)
+def graph_mis(req: MISRequest) -> MISResponse:
+    """
+    Solve MIS directly on ``req.graph`` — the conflict-track F. No complement
+    graph is built or returned; F itself is the graph the atoms will encode.
+
+    Reuses ``MISResponse`` so Stages 3–7 need no changes, with the legacy
+    field names re-read for this track:
+
+    - ``complement`` — the *target graph* Stage 3 embeds: F itself.
+    - ``max_clique_in_G`` / ``mis_in_complement`` — one maximum independent
+      set of F (the links that can transmit together).
+    - ``all_max_cliques`` / ``n_max_cliques`` — every maximum independent set.
+    - ``alpha_g`` / ``chromatic_*`` — α(F) and the χ(F) bounds.
+    """
+    f = _dto_to_graph(req.graph)
+    mis: list[int] = []
+    all_sets: list[list[int]] = []
+    n_sets = 0
+    alpha_f = 0
+    chrom_lo = 0
+    chrom_hi = 0
+    if f.n_nodes <= cqm.EXACT_MIS_MAX_NODES:
+        try:
+            all_sets, n_sets = cqm.all_max_independent_sets(f)
+            alpha_f = cqm.alpha(f)
+            chrom_lo, chrom_hi = cqm.chromatic_bounds(f)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        if all_sets:
+            mis = all_sets[0]
+
+    return MISResponse(
+        graph=_graph_to_dto(f),
+        complement=_graph_to_dto(f),
+        max_clique_in_G=mis,
+        mis_in_complement=mis,
+        size=len(mis),
+        all_max_cliques=all_sets,
+        n_max_cliques=n_sets,
+        alpha_g=alpha_f,
+        chromatic_lower=chrom_lo,
+        chromatic_upper=chrom_hi,
+    )
+
+
 @app.post("/api/graph/conflict", response_model=ConflictGraphResponse)
 def graph_conflict(req: ConflictGraphRequest) -> ConflictGraphResponse:
     """
@@ -263,9 +310,8 @@ def graph_conflict(req: ConflictGraphRequest) -> ConflictGraphResponse:
     (Jain, Padhye, Padmanabhan & Qiu, MobiCom 2003 — see
     ``pipeline.conflict_graph`` for the construction rule).
 
-    F is a plain ``GraphDTO`` like any other, so the caller feeds it straight
-    into ``/api/graph/complement`` to run the same complement+MIS machinery
-    Stage 2 already uses for the direct track.
+    F is a plain ``GraphDTO``; the caller solves MIS(F) on it directly via
+    ``/api/graph/mis`` and embeds F itself on the atom array.
     """
     g = _dto_to_graph(req.graph)
     try:

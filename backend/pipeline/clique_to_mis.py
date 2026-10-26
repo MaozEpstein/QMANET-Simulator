@@ -198,6 +198,18 @@ def all_max_cliques(g: Graph) -> tuple[list[list[int]], int]:
     return unique[:MAX_CLIQUE_ENUM_LIMIT], total
 
 
+def all_max_independent_sets(g: Graph) -> tuple[list[list[int]], int]:
+    """Enumerate maximum-size independent sets of G — same ``(sets, total)``
+    contract and ``MAX_CLIQUE_ENUM_LIMIT`` cap as :func:`all_max_cliques`.
+
+    Used by the conflict track, where MIS(F) is solved directly on F (no
+    complement graph is ever surfaced). Internally the enumeration reuses the
+    clique machinery on the complement — that's solver plumbing, not a stage
+    of the pipeline.
+    """
+    return all_max_cliques(complement(g))
+
+
 def is_independent_set(g: Graph, subset: list[int]) -> bool:
     edge_set = {tuple(sorted(e)) for e in g.edges}
     s = set(subset)

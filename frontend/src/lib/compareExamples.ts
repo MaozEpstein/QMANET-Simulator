@@ -51,8 +51,8 @@ export async function computeDirectStats(graph: GraphDTO): Promise<TrackResult> 
   }
 }
 
-/** Conflict track: build F over graph's links at the given R', then feed F̄
- * into the same complement/MIS machinery — mirrors ExamplesButton's
+/** Conflict track: build F over graph's links at the given R', then solve
+ * MIS(F) directly on F (no complement) — mirrors ExamplesButton's
  * loadExample (which additionally writes into the pipeline store; this
  * doesn't). */
 export async function computeConflictStats(
@@ -61,7 +61,7 @@ export async function computeConflictStats(
 ): Promise<TrackResult> {
   try {
     const cg = await api.conflictGraph(graph, interferenceRadius);
-    const mis = await api.complement(cg.conflict_graph_complement);
+    const mis = await api.mis(cg.conflict_graph);
     return {
       ok: true,
       stats: {
