@@ -11,6 +11,7 @@
  * after we decide which graphs make the cut.
  */
 
+import { UDG_READINESS, udgReadinessTitle } from "../lib/udgReadiness";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { matchesExampleQuery } from "../lib/exampleSearch";
 import { api } from "../api/rest";
@@ -86,6 +87,22 @@ const STEP_LABEL: Record<Exclude<LoadingStep, null>, string> = {
 };
 
 const STEP_ORDER: Exclude<LoadingStep, null>[] = ["complement", "embed", "schedule"];
+
+const UDG_BUILDER_KEY = new Map<unknown, string>([
+  [buildApStarExample, "ApStar"],
+  [buildBernienChain9Example, "BernienChain9"],
+  [buildC4Example, "C4"],
+  [buildCommunityMeshSmallExample, "CommunityMeshSmall"],
+  [buildConflictPentagonExample, "ConflictPentagon"],
+  [buildHexCellularLargeExample, "HexCellularLarge"],
+  [buildHexCellularSmallExample, "HexCellularSmall"],
+  [buildHiddenTerminalExample, "HiddenTerminal"],
+  [buildInterferenceChainExample, "InterferenceChain"],
+  [buildManetRGG12Example, "ManetRGG12"],
+  [buildPathP8Example, "PathP8"],
+  [buildTwoHubsReuseExample, "TwoHubsReuse"],
+  [buildTwoTrianglesExample, "TwoTriangles"],
+]);
 
 export interface Example {
   id: string;
@@ -988,6 +1005,8 @@ function ExampleCard({
   disabled: boolean;
 }) {
   const soon = example.status === "soon" || !example.build;
+  const udgKey = example.build ? UDG_BUILDER_KEY.get(example.build) : undefined;
+  const udgReady = udgKey ? UDG_READINESS[udgKey] : undefined;
   const isLoading = loading !== null;
   const stepIdx = loading ? STEP_ORDER.indexOf(loading) : -1;
   return (
@@ -1004,7 +1023,17 @@ function ExampleCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: palette.textPrimary }}>{example.name}</div>
+        <div style={{ fontWeight: 600, fontSize: 13, color: palette.textPrimary }}>
+          {example.name}
+          {udgReady && (
+            <span
+              title={udgReadinessTitle(udgReady)}
+              style={{ marginInlineStart: 6, fontSize: 11, opacity: udgReady.bidirectional ? 0.95 : 0.55 }}
+            >
+              ⚛️
+            </span>
+          )}
+        </div>
         <div
           style={{
             fontFamily: "JetBrains Mono, monospace",
