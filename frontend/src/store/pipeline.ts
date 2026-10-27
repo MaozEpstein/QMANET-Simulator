@@ -5,6 +5,7 @@ import type {
   ConflictGraphResponse,
   ConflictMode,
   EmbedResponse,
+  UDGEmbedResponse,
   GapTraceDTO,
   MANETResponse,
   MISResponse,
@@ -145,6 +146,16 @@ interface PipelineState {
 
   embed: EmbedResponse | null;
   setEmbed: (e: EmbedResponse | null) => void;
+
+  /** Exact-UDG placement search state, shared by Stage 2 and Stage 3 so both
+   *  show the same button/verdict. Not persisted. `udgKey` identifies the
+   *  target graph the result belongs to; `udgBackup` holds the embedding that
+   *  was on screen before the search replaced it (null = nothing to undo). */
+  udgResult: UDGEmbedResponse | null;
+  udgKey: string | null;
+  udgBackup: { embed: EmbedResponse | null } | null;
+  setUdgResult: (r: UDGEmbedResponse | null, key: string | null) => void;
+  setUdgBackup: (b: { embed: EmbedResponse | null } | null) => void;
 
   schedule: ScheduleResponse | null;
   setSchedule: (s: ScheduleResponse | null) => void;
@@ -347,6 +358,11 @@ export const usePipeline = create<PipelineState>()(
       conflictMode: "bidirectional",
       setConflictMode: (m) => set({ conflictMode: m }),
       embed: null,
+      udgResult: null,
+      udgKey: null,
+      udgBackup: null,
+      setUdgResult: (r, key) => set({ udgResult: r, udgKey: key }),
+      setUdgBackup: (b) => set({ udgBackup: b }),
       // Changing the embed invalidates all schedule-derived analyses (positions
       // feed every diagonalisation).
       setEmbed: (e) => {

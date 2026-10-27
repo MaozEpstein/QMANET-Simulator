@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { api, type EmbedConfigDTO, type EmbedResponse } from "../api/rest";
+import { UdgSearchPanel } from "../components/UdgSearchPanel";
 import { AtomArray2D } from "../components/AtomArray2D";
 import { ConstraintBadge, ConstraintSummary } from "../components/ConstraintBadge";
 import { Panel } from "../components/Panel";
@@ -10,7 +11,7 @@ import { selectStaleStages, usePipeline } from "../store/pipeline";
 import { StaleBanner } from "../components/StaleBanner";
 import { palette } from "../theme/palette";
 
-const DEFAULT_CFG: EmbedConfigDTO = {
+export const DEFAULT_CFG: EmbedConfigDTO = {
   lattice_spacing_um: 5,
   rabi_rad_us: 15,
   detuning_rad_us: 0,
@@ -55,7 +56,7 @@ function isBetter(a: EmbedResponse, b: EmbedResponse): boolean {
 }
 
 export function Stage3_Embedding() {
-  const { mis, embed, setEmbed } = usePipeline();
+  const { mis, embed, setEmbed, track } = usePipeline();
   const [cfg, setCfg] = useState<EmbedConfigDTO>(DEFAULT_CFG);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -205,7 +206,9 @@ export function Stage3_Embedding() {
     return (
       <Panel title="שלב 3 · השמת אטומים">
         <div style={{ color: palette.textSecondary }}>
-          ראשית הריצו את שלב 2 (גרף משלים) כדי לקבל את גרף המטרה (Ḡ).
+          {track === "conflict"
+            ? "ראשית הריצו את שלב 2 (גרף הקונפליקטים) כדי לקבל את גרף המטרה (F)."
+            : "ראשית הריצו את שלב 2 (גרף משלים) כדי לקבל את גרף המטרה (Ḡ)."}
         </div>
       </Panel>
     );
@@ -227,7 +230,7 @@ export function Stage3_Embedding() {
       )}
       <Panel
         title="שלב 3 · השמת אטומים על מערך Aquila"
-        subtitle="ממקמים את קודקודי Ḡ על אטומים פיזיים כך שרדיוס הבליעה (Rydberg blockade) משחזר את הקשתות"
+        subtitle={`ממקמים את קודקודי ${track === "conflict" ? "F" : "Ḡ"} על אטומים פיזיים כך שרדיוס הבליעה (Rydberg blockade) משחזר את הקשתות`}
         right={embed ? <ConstraintSummary violations={embed.violations} /> : null}
       >
         <div
@@ -239,6 +242,11 @@ export function Stage3_Embedding() {
           }}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <UdgSearchPanel
+              targetGraph={targetGraph}
+              cfg={cfg}
+              disabled={loading || autoTuning}
+            />
             <Slider
               label="מרווח סריג"
               value={cfg.lattice_spacing_um}

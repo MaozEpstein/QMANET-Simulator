@@ -6,7 +6,11 @@ import type {
   ConflictMode,
   GraphDTO,
   InterferenceSweepResponse,
+  UDGCheckResponse,
 } from "../api/rest";
+import { UdgVerdictBanner } from "../components/UdgVerdictBanner";
+import { UdgSearchRow, graphKey } from "../components/UdgSearchPanel";
+import { DEFAULT_CFG } from "./Stage3_Embedding";
 import { GraphView } from "../components/GraphView";
 import { InfoButton } from "../components/InfoButton";
 import { InterferenceSweepChart } from "../components/InterferenceSweepChart";
@@ -152,6 +156,32 @@ export function Stage2_Complement() {
     }
   }, [manet, track, interferenceRadius, conflictMode, mis, misStale, computeActiveMis]);
 
+  // Conflict track: is F even a candidate for the atom array? The cheap
+  // structural certificates (milliseconds, no placement search) answer
+  // "provably not embeddable" immediately; Stage 3 runs the real search.
+  // Checked at Ω=15 (the Stage 3 default) — a lower Ω raises R_b and can
+  // lift some of these limits, which Stage 3 handles.
+  const [udgCheck, setUdgCheck] = useState<UDGCheckResponse | null>(null);
+  useEffect(() => {
+    if (track !== "conflict" || !conflictGraph) {
+      setUdgCheck(null);
+      return;
+    }
+    let cancelled = false;
+    setUdgCheck(null);
+    api
+      .udgCheck(conflictGraph.conflict_graph)
+      .then((r) => {
+        if (!cancelled) setUdgCheck(r);
+      })
+      .catch(() => {
+        if (!cancelled) setUdgCheck(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [track, conflictGraph]);
+
   const cliques: number[][] = useMemo(() => {
     if (!mis) return [];
     if (mis.all_max_cliques && mis.all_max_cliques.length > 0) {
@@ -177,6 +207,17 @@ export function Stage2_Complement() {
     track === "conflict" && conflictGraph
       ? conflictGraph.conflict_graph
       : manet?.graph ?? { n_nodes: 0, edges: [], node_positions: null };
+
+  // After an exact-UDG search, redraw F at the atom placement that realises it
+  // (instead of the MANET-derived layout). "Restore previous" clears this.
+  const embedPositions = usePipeline((s) => s.embed?.positions ?? null);
+  const udgApplied = usePipeline(
+    (s) => s.udgBackup !== null && s.udgKey === graphKey(s.mis?.complement),
+  );
+  const udgPositions =
+    track === "conflict" && udgApplied && embedPositions && embedPositions.length === mis?.complement.n_nodes
+      ? embedPositions
+      : null;
 
   // Conflict-track vertices *are* MANET links — label them "i–j" instead of
   // an arbitrary index so the graph reads as what it actually is.
@@ -315,7 +356,15 @@ export function Stage2_Complement() {
       transition={{ duration: 0.4 }}
       style={{ display: "grid", gap: 16 }}
     >
-      <TrackToggle track={track} onChange={setTrack} />
+      {isConflict && mis ? (
+        <UdgSearchRow
+          targetGraph={mis.complement}
+          cfg={DEFAULT_CFG}
+          left={<TrackToggle track={track} onChange={setTrack} />}
+        />
+      ) : (
+        <TrackToggle track={track} onChange={setTrack} />
+      )}
 
       {isConflict && (
         <ConflictGraphIntro
@@ -590,7 +639,14 @@ export function Stage2_Complement() {
                         [`χ(${gbarLabel})`, chiText(mis?.chromatic_lower, mis?.chromatic_upper)],
                         ["#max-IS", `${mis?.n_max_cliques ?? "—"}`],
                         ["embedding", embeddingHint(gbarStats.density)],
-                        ["UDG check", "Stage 3 →"],
+                        [
+                          "UDG check",
+                          udgCheck === null
+                            ? "…"
+                            : udgCheck.verdict === "impossible"
+                              ? "✗ לא UDG"
+                              : "? Stage 3 →",
+                        ],
                       ]
                     : [
                         [`α(${gbarLabel})`, `${mis?.size ?? "—"}`],
@@ -600,6 +656,18 @@ export function Stage2_Complement() {
                       ]
                 }
               />
+            )}
+            {isConflict && udgCheck && (
+              <div style={{ margin: "10px 0" }}>
+                <UdgVerdictBanner
+                  kind={udgCheck.verdict}
+                  reason={
+                    udgCheck.verdict === "impossible"
+                      ? `${udgCheck.reason}. בלי מבנה unit-disk אין blockade שמשחזר את F, ולכן המחשב הקוונטי לא יכול לפתור אותו ישירות (ב-Ω=15, R_b=${udgCheck.blockade_radius_um.toFixed(2)} µm).`
+                      : "שלב 3 יחפש הטמעה מדויקת על Aquila."
+                  }
+                />
+              </div>
             )}
             <div style={{ margin: "10px 0 8px", color: palette.textSecondary, fontSize: 13 }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -632,7 +700,7 @@ export function Stage2_Complement() {
               <GraphView
                 graph={{
                   ...mis.complement,
-                  node_positions: activeGraph.node_positions,
+                  node_positions: udgPositions ?? activeGraph.node_positions,
                 }}
                 mode="geometric"
                 highlight={cliqueSet}

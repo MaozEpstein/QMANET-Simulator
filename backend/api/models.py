@@ -238,6 +238,52 @@ class EmbedResponse(BaseModel):
     violations: list[ViolationDTO]
 
 
+class UDGCheckRequest(BaseModel):
+    """Cheap structural check: can ``graph`` possibly be an atom array?"""
+
+    graph: GraphDTO
+    rabi_rad_us: float = Field(default=15.0, ge=0.0, le=15.8)
+    detuning_rad_us: float = Field(default=0.0, ge=-125.0, le=125.0)
+
+
+class UDGCheckResponse(BaseModel):
+    verdict: Literal["impossible", "unknown"]
+    """``impossible`` = proven not embeddable; ``unknown`` = no certificate
+    fired (a placement search may still fail — see ``/api/embed/udg``)."""
+    reason: str
+    code: str
+    """too_many_atoms | max_degree | degeneracy | clique | clique_rows |
+    induced_k16 | induced_k23 | none."""
+    blockade_radius_um: float
+
+
+class UDGEmbedRequest(BaseModel):
+    target_graph: GraphDTO
+    config: EmbedConfigDTO | None = None
+    """Only ``rabi_rad_us`` / ``detuning_rad_us`` (which set R_b) are used."""
+    time_budget_s: float = Field(default=5.0, gt=0.0, le=60.0)
+    seed: int = 0
+
+
+class UDGEmbedResponse(BaseModel):
+    verdict: Literal["found", "not_found", "impossible"]
+    """``found`` = exact unit-disk placement (blockade graph == target, all
+    Aquila placement rules hold); ``not_found`` = search gave up (budget or
+    plateau) — evidence, not proof; ``impossible`` = a certificate proves no
+    placement exists."""
+    reason: str
+    stopped: Literal["found", "budget", "plateau", "certificate"]
+    certificate_code: str
+    attempts: int
+    elapsed_s: float
+    wrong_edges: int | None = None
+    violations: int | None = None
+    blockade_radius_um: float
+    embed: EmbedResponse | None = None
+    """Best placement found, with the usual metrics (exact when ``found``,
+    best-effort for ``not_found``, absent for ``impossible``)."""
+
+
 # --------------------------------------------------------------------------- #
 # Phase 3 — Pulse schedule
 # --------------------------------------------------------------------------- #

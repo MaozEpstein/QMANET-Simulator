@@ -224,6 +224,32 @@ export interface EmbedRequest {
   config?: Partial<EmbedConfigDTO>;
 }
 
+export type UDGVerdict = "found" | "not_found" | "impossible";
+
+export interface UDGCheckResponse {
+  /** "impossible" = proven not embeddable; "unknown" = no certificate fired. */
+  verdict: "impossible" | "unknown";
+  reason: string;
+  code: string;
+  blockade_radius_um: number;
+}
+
+export interface UDGEmbedResponse {
+  /** found = exact unit-disk placement; not_found = search gave up (evidence,
+   * not proof); impossible = a certificate proves no placement exists. */
+  verdict: UDGVerdict;
+  reason: string;
+  stopped: "found" | "budget" | "plateau" | "certificate";
+  certificate_code: string;
+  attempts: number;
+  elapsed_s: number;
+  wrong_edges: number | null;
+  violations: number | null;
+  blockade_radius_um: number;
+  /** Best placement found (exact when found); null when impossible. */
+  embed: EmbedResponse | null;
+}
+
 export interface EmbedRecomputeRequest {
   positions: NodePos[];
   target_graph: GraphDTO;
@@ -578,6 +604,23 @@ export const api = {
       graph: conflictGraph,
     }),
   embed: (req: EmbedRequest) => postJSON<EmbedRequest, EmbedResponse>("/api/embed/atoms", req),
+  /** Milliseconds-cheap structural check: can this graph be an atom array? */
+  udgCheck: (graph: GraphDTO, rabi_rad_us = 15, detuning_rad_us = 0) =>
+    postJSON<{ graph: GraphDTO; rabi_rad_us: number; detuning_rad_us: number }, UDGCheckResponse>(
+      "/api/embed/udg/check",
+      { graph, rabi_rad_us, detuning_rad_us },
+    ),
+  /** Search for an exact unit-disk placement (certificates, then multi-start L-BFGS-B). */
+  embedUdg: (
+    target_graph: GraphDTO,
+    config: Partial<EmbedConfigDTO>,
+    time_budget_s = 5,
+    seed = 0,
+  ) =>
+    postJSON<
+      { target_graph: GraphDTO; config: Partial<EmbedConfigDTO>; time_budget_s: number; seed: number },
+      UDGEmbedResponse
+    >("/api/embed/udg", { target_graph, config, time_budget_s, seed }),
   embedRecompute: (req: EmbedRecomputeRequest) =>
     postJSON<EmbedRecomputeRequest, EmbedResponse>("/api/embed/recompute", req),
   presets: () => getJSON<{ presets: string[] }>("/api/schedule/presets"),

@@ -18,7 +18,7 @@ from dataclasses import asdict
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from aquila.constants import AQUILA
+from aquila.constants import AQUILA, blockade_radius_um
 import asyncio
 import json
 from contextlib import suppress
@@ -41,8 +41,13 @@ from api.models import (
     InterferenceSweepResponse,
     CostEstimateDTO,
     EmbedRecomputeRequest,
+    EmbedConfigDTO,
     EmbedRequest,
     EmbedResponse,
+    UDGCheckRequest,
+    UDGCheckResponse,
+    UDGEmbedRequest,
+    UDGEmbedResponse,
     GapTraceDTO,
     GraphDTO,
     PhaseDiagramDTO,
@@ -105,6 +110,8 @@ from pipeline.adiabatic_gap import GAP_MAX_ATOMS, compute_min_gap, compute_spect
 from pipeline.phase_diagram import PHASE_DIAGRAM_MAX_ATOMS, compute_phase_diagram
 from pipeline.classical_sa import SAConfig, simulated_annealing
 from pipeline.embedding import EmbedConfig, embed as embed_atoms, recompute_embed_metrics
+from pipeline.udg_certificates import certificate_check
+from pipeline.udg_embed import embed_udg
 from pipeline.measurement import measure
 from pipeline.postprocess import postprocess, postprocess_many, summarize_postprocess
 from aquila.braket_adapter import (
@@ -504,6 +511,63 @@ def embed_atoms_endpoint(req: EmbedRequest) -> EmbedResponse:
         missing_edges=arr.missing_edges,
         spurious_edges=arr.spurious_edges,
         violations=[ViolationDTO(**v.to_dict()) for v in arr.violations],
+    )
+
+
+@app.post("/api/embed/udg/check", response_model=UDGCheckResponse)
+def udg_check_endpoint(req: UDGCheckRequest) -> UDGCheckResponse:
+    """Milliseconds-cheap necessary conditions for "this graph can be an atom
+    array on Aquila" (see ``pipeline.udg_certificates``). ``impossible`` is a
+    proof; ``unknown`` only means no certificate fired."""
+    g = _dto_to_graph(req.graph)
+    r_b = blockade_radius_um(req.rabi_rad_us, req.detuning_rad_us)
+    cert = certificate_check(g.n_nodes, [(int(u), int(v)) for u, v in g.edges], r_b)
+    return UDGCheckResponse(
+        verdict=cert.verdict, reason=cert.reason, code=cert.code, blockade_radius_um=r_b
+    )
+
+
+@app.post("/api/embed/udg", response_model=UDGEmbedResponse)
+def embed_udg_endpoint(req: UDGEmbedRequest) -> UDGEmbedResponse:
+    """
+    Search for an exact unit-disk placement of ``target_graph`` (certificates
+    first, then a multi-start L-BFGS-B search — see ``pipeline.udg_embed``).
+    Always returns 200: ``verdict`` says found / not_found / impossible.
+    """
+    g = _dto_to_graph(req.target_graph)
+    cfg = req.config or EmbedConfigDTO()
+    r_b = blockade_radius_um(cfg.rabi_rad_us, cfg.detuning_rad_us)
+    res = embed_udg(
+        g,
+        rabi_rad_us=cfg.rabi_rad_us,
+        detuning_rad_us=cfg.detuning_rad_us,
+        time_budget_s=req.time_budget_s,
+        seed=req.seed,
+    )
+    embed_dto: EmbedResponse | None = None
+    if res.positions is not None:
+        arr = recompute_embed_metrics(res.positions, g, r_b)
+        embed_dto = EmbedResponse(
+            positions=[NodePos(id=i, x=x, y=y) for i, (x, y) in enumerate(arr.positions)],
+            n_atoms=len(arr.positions),
+            blockade_radius_um=arr.blockade_radius_um,
+            induced_edges=arr.induced_edges,
+            embedding_fidelity=arr.embedding_fidelity,
+            missing_edges=arr.missing_edges,
+            spurious_edges=arr.spurious_edges,
+            violations=[ViolationDTO(**v.to_dict()) for v in arr.violations],
+        )
+    return UDGEmbedResponse(
+        verdict=res.verdict,
+        reason=res.reason,
+        stopped=res.stopped,
+        certificate_code=res.certificate.code if res.certificate else "none",
+        attempts=res.attempts,
+        elapsed_s=res.elapsed_s,
+        wrong_edges=res.wrong_edges,
+        violations=res.violations,
+        blockade_radius_um=r_b,
+        embed=embed_dto,
     )
 
 

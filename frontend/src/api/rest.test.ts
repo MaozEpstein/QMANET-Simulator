@@ -166,6 +166,73 @@ describe("api.complement", () => {
   });
 });
 
+describe("api.mis", () => {
+  it("posts {graph} to /api/graph/mis (MIS solved on F itself, no complement)", async () => {
+    const f: GraphDTO = { n_nodes: 2, edges: [[0, 1]], node_positions: null };
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        graph: f,
+        complement: f,
+        max_clique_in_G: [0],
+        mis_in_complement: [0],
+        size: 1,
+        all_max_cliques: [[0], [1]],
+        n_max_cliques: 2,
+        alpha_g: 1,
+        chromatic_lower: 2,
+        chromatic_upper: 2,
+      }),
+    );
+    const res = await api.mis(f);
+    expect(res.size).toBe(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/graph/mis");
+    expect(JSON.parse(init.body)).toEqual({ graph: f });
+  });
+});
+
+describe("api.udgCheck / api.embedUdg", () => {
+  const g: GraphDTO = { n_nodes: 2, edges: [[0, 1]], node_positions: null };
+
+  it("udgCheck posts the graph with Ω/Δ defaults", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({ verdict: "unknown", reason: "x", code: "none", blockade_radius_um: 8.44 }),
+    );
+    const res = await api.udgCheck(g);
+    expect(res.verdict).toBe("unknown");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/embed/udg/check");
+    expect(JSON.parse(init.body)).toEqual({ graph: g, rabi_rad_us: 15, detuning_rad_us: 0 });
+  });
+
+  it("embedUdg posts config and time budget", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        verdict: "impossible",
+        reason: "x",
+        stopped: "certificate",
+        certificate_code: "clique",
+        attempts: 0,
+        elapsed_s: 0,
+        wrong_edges: null,
+        violations: null,
+        blockade_radius_um: 8.44,
+        embed: null,
+      }),
+    );
+    const res = await api.embedUdg(g, { rabi_rad_us: 10 }, 12, 3);
+    expect(res.embed).toBeNull();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/embed/udg");
+    expect(JSON.parse(init.body)).toEqual({
+      target_graph: g,
+      config: { rabi_rad_us: 10 },
+      time_budget_s: 12,
+      seed: 3,
+    });
+  });
+});
+
 describe("api.embed", () => {
   it("posts target_graph and parses EmbedResponse", async () => {
     const fake: EmbedResponse = {
